@@ -114,6 +114,8 @@ export interface MediaGenerationRequest {
   sampleRate?: number;
   mode?: "singleImage" | "startEndRequired" | "endFrameOptional" | "startFrameOptional" | "text"
     | (`${"image" | "video" | "audio"}Reference:${number}`)[];
+  /** 供应商专属参数；宿主只透传不解读，由各供应商自行读取。 */
+  other?: Record<string, unknown>;
 }
 
 export interface GeneratedMedia {

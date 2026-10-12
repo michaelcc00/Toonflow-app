@@ -28,17 +28,46 @@
           </span>
         </el-button>
       </div>
+      <template v-if="showExtra">
+        <div class="sectionLabel extraTitle">RunningHub 参数</div>
+        <div class="extraRow">
+          <span class="extraLabel">生成三视图</span>
+          <el-switch v-model="threeView" :disabled="disabled" aria-label="是否生成三视图" />
+        </div>
+        <div class="extraRow">
+          <span class="extraLabel">放大</span>
+          <el-switch v-model="upscale" :disabled="disabled" aria-label="是否放大" />
+        </div>
+        <div class="extraRow">
+          <span class="extraLabel">放大倍数</span>
+          <el-select
+            v-model="upscaleFactor"
+            :disabled="disabled || !upscale"
+            filterable
+            allow-create
+            class="extraSelect"
+            placeholder="选择或输入"
+            aria-label="放大倍数">
+            <el-option v-for="item in scaleOptions" :key="item" :label="String(item)" :value="item" />
+          </el-select>
+        </div>
+      </template>
     </div>
   </el-popover>
 </template>
 
 <script setup lang="ts">
-import { ElButton, ElPopover, ElRadioGroup, ElRadioButton } from "element-plus";
+import { ElButton, ElPopover, ElRadioGroup, ElRadioButton, ElSwitch, ElSelect, ElOption } from "element-plus";
 import { IconChevronUp } from "@tabler/icons-vue";
 
-defineProps<{ sizes: string[]; ratios: string[]; disabled?: boolean }>();
+defineProps<{ sizes: string[]; ratios: string[]; disabled?: boolean; showExtra?: boolean }>();
 const size = defineModel<string>("size", { required: true });
 const ratio = defineModel<string>("ratio", { required: true });
+// RunningHub 专属参数（仅 showExtra 时展示）；经 input.other 透传给供应商，节点上的值优先于供应商配置。
+const threeView = defineModel<boolean>("threeView", { default: false });
+const upscale = defineModel<boolean>("upscale", { default: false });
+const upscaleFactor = defineModel<number | string>("upscaleFactor", { default: 2 });
+const scaleOptions = [1.5, 2, 3, 4];
 
 function ratioStyle(value: string) {
   const [width = 1, height = 1] = value.split(":").map(Number);
@@ -124,6 +153,19 @@ function ratioStyle(value: string) {
         font-size: 12px;
       }
     }
+  }
+
+  .extraTitle { margin-top: 14px; }
+  .extraRow {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: 6px 0;
+    .extraLabel {
+      color: var(--el-text-color-primary);
+      font-size: 13px;
+    }
+    .extraSelect { width: 130px; }
   }
 }
 </style>

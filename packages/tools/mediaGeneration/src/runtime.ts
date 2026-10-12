@@ -16,6 +16,8 @@ const sharedFields = {
   outputDirectory: relativePath.optional(),
   images: z.array(imageReference).max(64).optional(),
   ratio: z.string().regex(/^[1-9]\d{0,3}:[1-9]\d{0,3}$/).optional(),
+  /** 供应商专属参数；宿主只透传不解读，由各供应商自行读取。 */
+  other: z.record(z.string(), z.unknown()).optional(),
 };
 const referenceMode = z.templateLiteral([z.enum(["image", "video", "audio"]), "Reference:", z.number()])
   .refine(value => /Reference:(?:[1-9]\d?|1\d{2}|2[0-4]\d|25[0-6])$/.test(value), "参考数量必须在 1 到 256 之间");

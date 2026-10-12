@@ -155,16 +155,17 @@ export async function generateMedia(
     ? await provider.generateAudio!({
       model: request.modelId, text: request.prompt, images, audios: await references(request.audios, "audio"),
       voice: request.voice, speed: request.speed, volume: request.volume, pitch: request.pitch, language: request.language, format: request.format, sampleRate: request.sampleRate,
+      other: request.other,
     })
     : mediaType === "image"
-    ? await provider.generateImage!({ model: request.modelId, prompt: request.prompt, images, ratio: request.ratio, size: request.size })
+    ? await provider.generateImage!({ model: request.modelId, prompt: request.prompt, images, ratio: request.ratio, size: request.size, other: request.other })
     : await provider.generateVideo!({
       model: request.modelId, prompt: request.prompt, images,
       videos: await references(request.videos, "video"), audios: await references(request.audios, "audio"),
       firstFrame: request.firstFrame ? await readReference(directory, request.firstFrame, "image", signal) : undefined,
       lastFrame: request.lastFrame ? await readReference(directory, request.lastFrame, "image", signal) : undefined,
       ratio: request.ratio, resolution: request.resolution, duration: request.duration,
-      generateAudio: request.generateAudio, mode: request.mode,
+      generateAudio: request.generateAudio, mode: request.mode, other: request.other,
     });
   // 供应商可返回数组或 { assets, optimizedPrompt }；后者透出本次实际使用的提示词（如 LLM 优化版）
   const assetList = Array.isArray(assets) ? assets : assets.assets;
