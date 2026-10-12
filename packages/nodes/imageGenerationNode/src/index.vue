@@ -310,7 +310,7 @@ async function startGeneration() {
         ? generateInpaint({ ...input, directory }, inpaintData, controller.signal)
         : ai.generateImage({ ...input, directory }, controller.signal);
     })
-    .then(([result]) => {
+    .then(({ files: [result] }) => {
       controller.signal.throwIfAborted();
       if (!result) throw new Error("供应商未返回图片");
       outputs.value.image = { dataType: "IMAGE", value: { url: result.path, mimeType: result.mimeType } };

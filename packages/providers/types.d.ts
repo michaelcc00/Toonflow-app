@@ -177,13 +177,24 @@ type AudioRequest = MediaRequest & {
 } & ({ text: string } | { prompt: string });
 
 /**
- * 三种生成函数统一返回最终媒体数组，不能返回任务 ID 或原始平台响应。
+ * 生成结果的扩展返回：除最终媒体数组外，供应商可附带本次实际使用的提示词
+ * （例如经过 LLM 优化后的版本），宿主收到后可写回输入框供下次直接修改。
+ */
+interface MediaGenerationResult {
+  assets: MediaAsset[];
+  /** 本次实际使用的提示词；缺省表示与请求提示词一致，无需写回。 */
+  optimizedPrompt?: string;
+}
+
+/**
+ * 三种生成函数统一返回最终媒体，不能返回任务 ID 或原始平台响应。
+ * 返回最终媒体数组，或携带扩展元信息的结果对象。
  * ACT: 本层只约定完整结果；供应商内部处理轮询/流读取，失败时抛出异常。
  */
 type GenerateMedia<TRequest, TConfig = Record<string, unknown>> = (
   this: ProviderContext<TConfig>,
   request: TRequest,
-) => Promise<MediaAsset[]>;
+) => Promise<MediaAsset[] | MediaGenerationResult>;
 
 interface ProviderUpdateInfo {
   hasUpdate: boolean;

@@ -166,11 +166,14 @@ export async function generateMedia(
       ratio: request.ratio, resolution: request.resolution, duration: request.duration,
       generateAudio: request.generateAudio, mode: request.mode,
     });
-  if (!Array.isArray(assets) || !assets.length) invalid("供应商未返回生成结果");
+  // 供应商可返回数组或 { assets, optimizedPrompt }；后者透出本次实际使用的提示词（如 LLM 优化版）
+  const assetList = Array.isArray(assets) ? assets : assets.assets;
+  const optimizedPrompt = Array.isArray(assets) ? undefined : assets.optimizedPrompt;
+  if (!Array.isArray(assetList) || !assetList.length) invalid("供应商未返回生成结果");
   const written: string[] = [];
   const result: GeneratedMedia[] = [];
   try {
-    for (const asset of assets) {
+    for (const asset of assetList) {
       signal?.throwIfAborted();
       const { bytes, mimeType } = await assetBytes(asset, mediaType, signal);
       signal?.throwIfAborted();
@@ -187,7 +190,7 @@ export async function generateMedia(
       } finally { release(); }
     }
     signal?.throwIfAborted();
-    return result;
+    return { files: result, optimizedPrompt };
   } catch (err) {
     // ACT: 只回滚本次创建的文件，保留目录中已有的节点资源。
     await Promise.all(written.map(path => unlink(path).catch((error: NodeJS.ErrnoException) => { if (error.code !== "ENOENT") throw error; })));

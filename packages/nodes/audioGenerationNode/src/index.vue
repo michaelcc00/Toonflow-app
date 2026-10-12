@@ -173,7 +173,7 @@ async function startGeneration() {
   generation = generationState.run(async () => {
     const { directory } = await workspace.list();
     controller.signal.throwIfAborted();
-    const [result] = await ai.generateAudio({ ...input, directory }, controller.signal);
+    const { files: [result] } = await ai.generateAudio({ ...input, directory }, controller.signal);
     controller.signal.throwIfAborted();
     if (!result) throw new Error("供应商未返回音频");
     outputs.value.audio = { dataType: "AUDIO", value: { url: result.path, mimeType: result.mimeType } };

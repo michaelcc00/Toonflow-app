@@ -27,8 +27,8 @@ export default Router().post("/", validateFields({
     res.flushHeaders();
     // ACT: JSON 允许前导空白，保活时保留现有 response.json() 契约。
     heartbeat = setInterval(() => { if (!res.destroyed && !res.writableEnded && !res.writableNeedDrain) res.write("\n"); }, 20000);
-    const files = await u.mediaGeneration.generateMedia(cwd, mediaType, parsed.data, controller.signal);
-    if (!res.destroyed) res.write(JSON.stringify(success(files)));
+    const { files, optimizedPrompt } = await u.mediaGeneration.generateMedia(cwd, mediaType, parsed.data, controller.signal);
+    if (!res.destroyed) res.write(JSON.stringify(success({ files, optimizedPrompt })));
   } catch (err) {
     if (!res.destroyed) res.write(JSON.stringify(errorFromCause(err)));
   } finally {
