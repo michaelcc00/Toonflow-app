@@ -42,7 +42,7 @@
       </div>
       <div v-if="pixelResolution" class="resolutionHint" aria-hidden="true">{{ pixelResolution }}</div>
     </div>
-    <template v-if="editor?.mode !== 'mark'" #bottom>
+    <template v-if="!isMarkMode" #bottom>
       <div v-if="lightingVisible" ref="lightingTarget" />
       <div v-else-if="multiAngleVisible" ref="multiAngleTarget" />
       <el-card v-else class="promptCard" shadow="never" :bodyStyle="{ padding: '14px 16px 12px' }">
@@ -160,6 +160,7 @@ const uploading = ref(false);
 const fileInput = ref<HTMLInputElement>();
 const gridSplit = ref<InstanceType<typeof imageGridSplit>>();
 const editor = ref<InstanceType<typeof imageEditor>>();
+const isMarkMode = computed(() => editor.value?.mode === "mark");
 const generateInpaint = useImageInpaint();
 const paintToolbar = ref<HTMLElement>();
 const lighting = ref<InstanceType<typeof imageLighting>>();
