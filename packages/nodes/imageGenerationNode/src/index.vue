@@ -79,7 +79,7 @@
             v-if="editor?.mode !== 'inpaint'"
             v-model:size="data.size"
             v-model:ratio="data.ratio"
-            v-model:customValues="data.customParamValues"
+            v-model:customValues="customParamValues"
             :sizes="sizeOptions"
             :ratios="ratioOptions"
             :customParams="customParams"
@@ -182,6 +182,11 @@ const selectedModel = computed(() => models.value.find((item) => JSON.stringify(
 const sizeOptions = computed(() => (selectedModel.value?.imageSizes?.length ? selectedModel.value.imageSizes : ["2K"]));
 const ratioOptions = computed(() => (selectedModel.value?.imageRatios?.length ? selectedModel.value.imageRatios : ["16:9"]));
 const customParams = computed(() => selectedModel.value?.customParams ?? []);
+// ACT: v-model 直接绑 data.customParamValues（computed 嵌套字段）时更新可能丢失，用 computed 中转保证 setter 走到。
+const customParamValues = computed<Record<string, unknown>>({
+  get: () => data.value.customParamValues ?? {},
+  set: (val) => { data.value.customParamValues = val; },
+});
 watch(
   selectedModel,
   (choice) => {
@@ -300,7 +305,7 @@ async function startGeneration() {
     outputDirectory: `assets/${id}`,
     images: references.flatMap(item => item.dataType === "IMAGE" && item.value ? [{ path: item.value.url, mimeType: item.value.mimeType }] : []),
     // ACT: 参数定义随值一起透传，插件不依赖自身配置里的 customParams（可能为空/过期）。
-    other: { ...data.value.customParamValues, __customParamDefs: customParams.value },
+    other: { ...customParamValues.value, __customParamDefs: customParams.value },
   };
   if (inpaintData) {
     let imageIndex = 3 + (inpaintData.images?.length ?? 0);
