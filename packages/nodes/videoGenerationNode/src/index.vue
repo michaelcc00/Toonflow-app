@@ -168,23 +168,22 @@ const optimizeOriginal = ref("");
 const optimizeResult = ref("");
 const optimizeImages = ref<{ src?: string; label: string }[]>([]);
 let optimizeResolve: ((prompt: string | undefined) => void) | undefined;
-let promptOptimizeConfig: { enabled: boolean; providerId: string; modelId: string; language: "zh" | "en"; readMedia: boolean } | undefined;
 
-async function loadPromptOptimizeConfig() {
-  if (promptOptimizeConfig) return promptOptimizeConfig;
+async function loadPromptOptimizeConfig(): Promise<{ enabled: boolean; providerId: string; modelId: string; language: "zh" | "en"; readMedia: boolean }> {
+  // 每次重新读取：用户可能在节点挂载后才去设置里改配置
   const response = await fetch("/api/settings/get", { headers: { "x-toonflow-workspace": "1" } });
   const result = await response.json() as { code: number; data?: { promptOptimize?: { enabled?: boolean; providerId?: string; modelId?: string; language?: string; readMedia?: boolean } } };
   if (result.code !== 200) throw new Error("读取提示词优化设置失败");
   const raw = result.data?.promptOptimize ?? {};
-  promptOptimizeConfig = {
+  const config: { enabled: boolean; providerId: string; modelId: string; language: "zh" | "en"; readMedia: boolean } = {
     enabled: raw.enabled !== false,
     providerId: raw.providerId ?? "",
     modelId: raw.modelId ?? "",
     language: raw.language === "en" ? "en" : "zh",
     readMedia: raw.readMedia !== false,
   };
-  optimizeEnabled.value = promptOptimizeConfig.enabled;
-  return promptOptimizeConfig;
+  optimizeEnabled.value = config.enabled;
+  return config;
 }
 const generationState = useNodeGeneration(outputs, () => generationController?.abort());
 const { generating } = generationState;
