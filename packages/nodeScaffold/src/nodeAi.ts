@@ -179,6 +179,23 @@ export function useNodeAi() {
     return generateMedia("audio", input, signal);
   }
 
+  async function optimizePrompt(input: {
+    providerId: string;
+    modelId: string;
+    prompt: string;
+    imagePaths?: { path: string; mimeType: string }[];
+    language?: "zh" | "en";
+    readMedia?: boolean;
+    directory?: string;
+  }, signal?: AbortSignal) {
+    return readResult<{ optimized: string }>(await fetch("/api/ai/prompt/optimize", {
+      method: "POST",
+      headers: { "Content-Type": "application/json", "x-toonflow-workspace": "1" },
+      body: JSON.stringify(input),
+      signal: requestSignal(signal),
+    }));
+  }
+
   async function generate(input: NodeAiRequest): Promise<NodeAiResult> {
     const signal = requestSignal(input.signal);
     const callSignal = input.tools?.length ? AbortSignal.any([signal, AbortSignal.timeout(600000)]) : signal;
@@ -229,5 +246,5 @@ export function useNodeAi() {
     return { text, ...(reasoning ? { reasoning } : {}) };
   }
 
-  return { getModels, getMediaModels, generateImage, generateVideo, generateAudio, generate };
+  return { getModels, getMediaModels, generateImage, generateVideo, generateAudio, generate, optimizePrompt };
 }

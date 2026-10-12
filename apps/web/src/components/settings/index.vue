@@ -51,6 +51,7 @@ import {
   IconUserCog,
   IconSubtitlesAi,
   IconDevices,
+  IconWand,
 } from "@tabler/icons-vue";
 
 const settingsPanels = [
@@ -64,6 +65,12 @@ const settingsPanels = [
     component: defineAsyncComponent(() => import("./panels/languageModel/index.vue")),
   },
   { id: "mediaModel", label: "媒体模型", icon: IconPhotoVideo, component: defineAsyncComponent(() => import("./panels/mediaModel/index.vue")) },
+  {
+    id: "promptOptimize",
+    label: "提示词优化",
+    icon: IconWand,
+    component: defineAsyncComponent(() => import("./panels/promptOptimize.vue")),
+  },
   {
     id: "pluginMarket",
     label: "插件市场",

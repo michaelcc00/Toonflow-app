@@ -81,9 +81,19 @@
             :ratios="ratioOptions"
             :model="selectedModel"
             :disabled="generating || deleting || !selectedModel" />
+          <el-tooltip content="生成前先用文本模型优化提示词，确认无误再生成" placement="top">
+            <span class="optimizeToggle">
+              <el-switch
+                v-model="optimizeEnabled"
+                :disabled="generating || deleting || optimizing"
+                aria-label="是否开启提示词优化" />
+              <icon-wand :size="15" aria-hidden="true" />
+            </span>
+          </el-tooltip>
           <el-button
             class="sendButton"
             :icon="generating ? IconPlayerStop : IconArrowUp"
+            :loading="optimizing"
             :disabled="deleting || uploading || (!generating && (!generationPrompt || !selectedModel))"
             :title="generating ? '停止生成' : '生成视频'"
             :aria-label="generating ? '停止生成' : '生成视频'"
@@ -93,12 +103,19 @@
     </template>
   </nodeSkeleton>
   <videoActions ref="actions" :file="outputFile" :src="previewUrl" :disabled="generating || deleting || uploading" />
+  <optimizeConfirmDialog
+    v-model="optimizeDialog"
+    :original="optimizeOriginal"
+    :optimized="optimizeResult"
+    :images="optimizeImages"
+    @confirm="onOptimizeConfirm"
+    @cancel="onOptimizeCancel" />
 </template>
 
 <script setup lang="ts">
 import { computed, nextTick, onMounted, onScopeDispose, ref, watch } from "vue";
-import { ElButton, ElCard, ElSelect, ElOption, ElOptionGroup, ElLoading, ElDropdown, ElDropdownMenu, ElDropdownItem } from "element-plus";
-import { IconCameraAi, IconSparkles, IconArrowUp, IconPlayerStop, IconTransfer, IconMusic, IconLayersSubtract, IconScissors, IconPhotoScan, IconPlayerSkipBack, IconPlayerSkipForward } from "@tabler/icons-vue";
+import { ElButton, ElCard, ElSelect, ElOption, ElOptionGroup, ElLoading, ElDropdown, ElDropdownMenu, ElDropdownItem, ElSwitch, ElTooltip } from "element-plus";
+import { IconCameraAi, IconSparkles, IconArrowUp, IconPlayerStop, IconTransfer, IconMusic, IconLayersSubtract, IconScissors, IconPhotoScan, IconPlayerSkipBack, IconPlayerSkipForward, IconWand } from "@tabler/icons-vue";
 import { nodeSkeleton, nodeTools, useNode, z, type NodeMediaModel, type NodeVideoRequest, type NodeHandle } from "@toonflow/nodes-scaffold/runtime";
 import { groupNodeModels } from "@toonflow/node-shared/groupNodeModels";
 import { showNodeError } from "@toonflow/node-shared/showNodeError";
@@ -110,6 +127,7 @@ import videoActions from "@toonflow/node-video/videoActions";
 import referenceItem from "@toonflow/node-shared/referenceItem";
 import mediaHistory from "@toonflow/node-shared/mediaHistory";
 import generationSettings from "./components/generationSettings.vue";
+import optimizeConfirmDialog from "./components/optimizeConfirmDialog.vue";
 
 defineOptions({
   inheritAttrs: false,
@@ -143,6 +161,31 @@ const player = ref<InstanceType<typeof videoPlayer>>();
 const actions = ref<InstanceType<typeof videoActions>>();
 const videoWidth = ref(0);
 let generationController: AbortController | undefined;
+const optimizeEnabled = ref(false);
+const optimizing = ref(false);
+const optimizeDialog = ref(false);
+const optimizeOriginal = ref("");
+const optimizeResult = ref("");
+const optimizeImages = ref<{ src?: string; label: string }[]>([]);
+let optimizeResolve: ((prompt: string | undefined) => void) | undefined;
+let promptOptimizeConfig: { enabled: boolean; providerId: string; modelId: string; language: "zh" | "en"; readMedia: boolean } | undefined;
+
+async function loadPromptOptimizeConfig() {
+  if (promptOptimizeConfig) return promptOptimizeConfig;
+  const response = await fetch("/api/settings/get", { headers: { "x-toonflow-workspace": "1" } });
+  const result = await response.json() as { code: number; data?: { promptOptimize?: { enabled?: boolean; providerId?: string; modelId?: string; language?: string; readMedia?: boolean } } };
+  if (result.code !== 200) throw new Error("读取提示词优化设置失败");
+  const raw = result.data?.promptOptimize ?? {};
+  promptOptimizeConfig = {
+    enabled: raw.enabled !== false,
+    providerId: raw.providerId ?? "",
+    modelId: raw.modelId ?? "",
+    language: raw.language === "en" ? "en" : "zh",
+    readMedia: raw.readMedia !== false,
+  };
+  optimizeEnabled.value = promptOptimizeConfig.enabled;
+  return promptOptimizeConfig;
+}
 const generationState = useNodeGeneration(outputs, () => generationController?.abort());
 const { generating } = generationState;
 let generation: Promise<void> | undefined;
@@ -217,6 +260,9 @@ const previewUrl = files.useFileUrl(
 );
 
 onMounted(() => loadModels().catch((error) => showNodeError(error, "模型读取失败")));
+onMounted(() => {
+  loadPromptOptimizeConfig().catch((error) => showNodeError(error, "提示词优化设置读取失败"));
+});
 onScopeDispose(() => {
   disposed = true;
   generationController?.abort();
@@ -264,6 +310,49 @@ function loadModels() {
   return modelsRequest;
 }
 
+function onOptimizeConfirm(prompt: string) {
+  optimizeDialog.value = false;
+  optimizeResolve?.(prompt);
+  optimizeResolve = undefined;
+}
+
+function onOptimizeCancel() {
+  optimizeDialog.value = false;
+  optimizeResolve?.(undefined);
+  optimizeResolve = undefined;
+}
+
+/** 跑提示词优化并弹窗确认；返回确认后的提示词，取消则返回 undefined */
+function runOptimizeConfirm(prompt: string, images: { path: string; mimeType: string }[]): Promise<string | undefined> {
+  return (async () => {
+    const config = await loadPromptOptimizeConfig();
+    if (!config.providerId || !config.modelId) throw new Error("请先在设置 → 提示词优化中选择优化模型");
+    optimizing.value = true;
+    try {
+      const { directory } = await files.getWorkspaceFiles().list();
+      const { optimized } = await ai.optimizePrompt({
+        providerId: config.providerId,
+        modelId: config.modelId,
+        prompt,
+        imagePaths: config.readMedia ? images : [],
+        language: config.language,
+        readMedia: config.readMedia,
+        directory,
+      });
+      optimizeOriginal.value = prompt;
+      optimizeResult.value = optimized;
+      optimizeImages.value = images.map((_, index) => {
+        const mention = referenceMentions.value.find(item => item.value === `{{ref ${index + 1}}}`);
+        return { src: typeof mention?.avatar === "string" ? mention.avatar : undefined, label: `<Picture ${index + 1}>` };
+      });
+      optimizeDialog.value = true;
+      return await new Promise<string | undefined>((resolve) => { optimizeResolve = resolve; });
+    } finally {
+      optimizing.value = false;
+    }
+  })();
+}
+
 async function startGeneration() {
   const choice = selectedModel.value;
   if (generating.value) throw new Error("视频正在生成，请等待完成");
@@ -274,12 +363,19 @@ async function startGeneration() {
   if (refList.value.some(item => item.value === undefined)) throw new Error("引用节点暂无内容，请先补充引用内容");
   const images = refList.value.flatMap((item) => item.dataType === "IMAGE" && item.value ? [{ path: item.value.url, mimeType: item.value.mimeType }] : []);
   if (choice.mode?.length && !matchingModes.value.length) throw new Error("当前模型没有适合这些参考素材的生成模式，请更换模型或调整引用");
+  // 提示词优化：先跑优化，确认无误再生成
+  let prompt = generationPrompt.value;
+  if (optimizeEnabled.value) {
+    const optimized = await runOptimizeConfirm(prompt, images);
+    if (optimized === undefined) return { status: "cancelled" as const };
+    prompt = optimized;
+  }
   const workspace = files.getWorkspaceFiles();
   const controller = new AbortController();
   const input: Omit<NodeVideoRequest, "directory"> = {
     providerId: choice.providerId,
     modelId: choice.modelId,
-    prompt: generationPrompt.value,
+    prompt,
     mode: selectedMode.value,
     duration: data.value.duration,
     resolution: data.value.resolution || undefined,
@@ -478,11 +574,17 @@ nodeTools.register({
       }
     }
 
+    .optimizeToggle {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      color: var(--el-text-color-secondary);
+    }
+
     .sendButton {
       width: 32px;
       height: 32px;
-      margin-left: auto;
-      padding: 0;
+      margin-left: auto;      padding: 0;
       --el-button-bg-color: var(--el-text-color-primary);
       --el-button-border-color: transparent;
       --el-button-text-color: var(--el-bg-color);
