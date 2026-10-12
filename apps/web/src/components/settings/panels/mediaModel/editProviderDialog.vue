@@ -97,8 +97,27 @@
         </el-select>
         <el-input v-else v-model="editingParam.defaultText" placeholder="默认值" aria-label="默认值" />
         <div class="paramRow2">
-          <el-input v-model="editingParam.visibleWhenParamId" placeholder="仅当参数 ID（留空则始终显示）" aria-label="条件参数 ID" />
-          <el-input v-model="editingParam.visibleWhenEquals" placeholder="等于该值时显示" aria-label="条件值" :disabled="!editingParam.visibleWhenParamId.trim()" />
+          <el-select v-model="editingParam.visibleWhenParamId" placeholder="仅当此参数…" aria-label="条件参数" clearable>
+            <el-option
+              v-for="p in customParams.filter(p => p.id !== editingParamId)"
+              :key="p.id"
+              :label="p.label"
+              :value="p.id" />
+          </el-select>
+          <el-select
+            v-if="visibleWhenTarget?.type === 'switch'"
+            v-model="editingParam.visibleWhenEquals"
+            aria-label="条件值"
+            :disabled="!editingParam.visibleWhenParamId">
+            <el-option label="开启时" value="true" />
+            <el-option label="关闭时" value="false" />
+          </el-select>
+          <el-input
+            v-else
+            v-model="editingParam.visibleWhenEquals"
+            placeholder="等于该值时显示"
+            aria-label="条件值"
+            :disabled="!editingParam.visibleWhenParamId" />
         </div>
       </div>
       <template #footer>
@@ -216,6 +235,12 @@ const canSaveParam = computed(() => {
     && (p.type !== "select" || !!p.optionsText.trim());
 });
 
+const editingParamId = computed(() => editingParamIndex.value === undefined
+  ? ""
+  : customParams.value[editingParamIndex.value]?.id ?? "");
+
+const visibleWhenTarget = computed(() => customParams.value.find(p => p.id === editingParam.value.visibleWhenParamId));
+
 function parseDefaultValue(type: CustomParamDef["type"], text: string): string | number | boolean {
   const trimmed = text.trim();
   if (type === "switch") return trimmed === "true";
@@ -241,8 +266,14 @@ function confirmParam() {
     param.options = p.optionsText.split(",").map(s => s.trim()).filter(Boolean);
     param.display = p.display;
   }
-  if (p.visibleWhenParamId.trim()) {
-    param.visibleWhen = { paramId: p.visibleWhenParamId.trim(), equals: parseDefaultValue("input", p.visibleWhenEquals) as string };
+  if (p.visibleWhenParamId) {
+    const target = customParams.value.find(t => t.id === p.visibleWhenParamId);
+    const equalsText = p.visibleWhenEquals.trim();
+    param.visibleWhen = {
+      paramId: p.visibleWhenParamId,
+      // ACT: 开关条件存布尔值，节点弹窗按布尔比较，避免 "true"/true 混淆。
+      equals: target?.type === "switch" ? equalsText === "true" : equalsText,
+    };
   }
   if (editingParamIndex.value === undefined) customParams.value.push(param);
   else customParams.value.splice(editingParamIndex.value, 1, param);
