@@ -51,12 +51,10 @@
           {{ selectedMode === "startFrameOptional" ? "仅一张图片时作为尾帧；两张图片按顺序作为首帧、尾帧" : "图片引用按顺序作为首帧、尾帧" }}
         </div>
         <div class="promptInputHeader">
-          <el-segmented
-            v-model="showOptimized"
-            :options="[{ label: '原始', value: false }, { label: '优化后', value: true }]"
-            :disabled="!hasOptimized"
-            size="small"
-            aria-label="切换原始或优化后提示词" />
+          <el-button-group size="small" aria-label="切换原始或优化后提示词">
+            <el-button :icon="IconFileText" :type="!showOptimized ? 'primary' : 'default'" @click="showOptimized = false">原始</el-button>
+            <el-button :icon="IconWand" :type="showOptimized ? 'primary' : 'default'" :disabled="!hasOptimized" @click="showOptimized = true">优化后</el-button>
+          </el-button-group>
         </div>
         <promptInput v-model="displayPromptModel" v-model:text="displayPrompt" :references="referenceMentions" expandable />
         <div class="promptFooter">
@@ -114,8 +112,8 @@
 
 <script setup lang="ts">
 import { computed, nextTick, onMounted, onScopeDispose, ref, watch } from "vue";
-import { ElButton, ElCard, ElSelect, ElOption, ElOptionGroup, ElLoading, ElDropdown, ElDropdownMenu, ElDropdownItem, ElSegmented } from "element-plus";
-import { IconCameraAi, IconSparkles, IconArrowUp, IconPlayerStop, IconTransfer, IconMusic, IconLayersSubtract, IconScissors, IconPhotoScan, IconPlayerSkipBack, IconPlayerSkipForward, IconWand } from "@tabler/icons-vue";
+import { ElButton, ElButtonGroup, ElCard, ElSelect, ElOption, ElOptionGroup, ElLoading, ElDropdown, ElDropdownMenu, ElDropdownItem } from "element-plus";
+import { IconCameraAi, IconSparkles, IconArrowUp, IconPlayerStop, IconTransfer, IconMusic, IconLayersSubtract, IconScissors, IconPhotoScan, IconPlayerSkipBack, IconPlayerSkipForward, IconWand, IconFileText } from "@tabler/icons-vue";
 import { nodeSkeleton, nodeTools, useNode, z, type NodeMediaModel, type NodeVideoRequest, type NodeHandle } from "@toonflow/nodes-scaffold/runtime";
 import { groupNodeModels } from "@toonflow/node-shared/groupNodeModels";
 import { showNodeError } from "@toonflow/node-shared/showNodeError";

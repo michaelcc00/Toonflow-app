@@ -30,34 +30,48 @@
       <div class="promptList">
         <div class="listHeader">
           <h4>优化提示词</h4>
-          <el-button :icon="IconPlus" aria-label="添加提示词" @click="addPrompt">添加</el-button>
+          <el-button :icon="IconPlus" aria-label="添加提示词" @click="openDialog()">添加</el-button>
         </div>
-        <p class="description">可用占位符：&#123;&#123;lang&#125;&#125;（输出语言）、&#123;&#123;mediaNote&#125;&#125;（参考图说明）、&#123;&#123;imageCount&#125;&#125;（参考图数量）。</p>
-        <div v-for="item in config.prompts" :key="item.id" class="promptItem">
-          <div class="promptItemHeader">
-            <el-input v-model="item.name" placeholder="名称" aria-label="提示词名称" @change="savePrompts" />
-            <el-tag v-if="item.id === config.defaultPromptId" type="success">默认</el-tag>
-            <el-button v-else aria-label="设为默认" @click="save({ defaultPromptId: item.id })">设为默认</el-button>
-            <el-button :icon="IconTrash" text type="danger" aria-label="删除提示词" @click="removePrompt(item.id)" />
-          </div>
-          <el-input
-            v-model="item.content"
-            type="textarea"
-            :autosize="{ minRows: 8, maxRows: 16 }"
-            placeholder="提示词内容"
-            aria-label="提示词内容"
-            @change="savePrompts" />
+        <div v-for="item in config.prompts" :key="item.id" class="promptRow" @click="openDialog(item)">
+          <span class="promptName">{{ item.name || "未命名" }}</span>
+          <el-tag v-if="item.id === config.defaultPromptId" type="success" size="small">默认</el-tag>
+          <span class="promptActions" @click.stop>
+            <el-button v-if="item.id !== config.defaultPromptId" size="small" aria-label="设为默认" @click="save({ defaultPromptId: item.id })">设为默认</el-button>
+            <el-button :icon="IconTrash" size="small" text type="danger" aria-label="删除提示词" @click="removePrompt(item.id)" />
+          </span>
         </div>
         <el-empty v-if="!config.prompts.length" description="暂无提示词，点击添加" :imageSize="60" />
       </div>
     </section>
+    <el-dialog
+      v-model="dialogVisible"
+      :title="editingId ? '编辑提示词' : '添加提示词'"
+      width="min(720px, calc(100vw - 32px))"
+      alignCenter
+      appendToBody
+      :closeOnClickModal="false">
+      <div class="promptDialog">
+        <el-input v-model="editingName" placeholder="名称" aria-label="提示词名称" />
+        <p class="description">可用占位符：&#123;&#123;lang&#125;&#125;（输出语言）、&#123;&#123;mediaNote&#125;&#125;（参考图说明）、&#123;&#123;imageCount&#125;&#125;（参考图数量）。</p>
+        <el-input
+          v-model="editingContent"
+          type="textarea"
+          :autosize="{ minRows: 10, maxRows: 18 }"
+          placeholder="提示词内容"
+          aria-label="提示词内容" />
+      </div>
+      <template #footer>
+        <el-button @click="dialogVisible = false">取消</el-button>
+        <el-button type="primary" :disabled="!editingName.trim() || !editingContent.trim()" @click="confirmDialog">确定</el-button>
+      </template>
+    </el-dialog>
   </div>
 </template>
 
 <script setup lang="ts">
 import { computed, onMounted, ref } from "vue";
 import axios from "axios";
-import { ElAlert, ElButton, ElEmpty, ElInput, ElMessage, ElOption, ElSelect, ElSwitch, ElTag } from "element-plus";
+import { ElAlert, ElButton, ElDialog, ElEmpty, ElInput, ElMessage, ElOption, ElSelect, ElSwitch, ElTag } from "element-plus";
 import { IconPlus, IconTrash } from "@tabler/icons-vue";
 import { saveSettings, settings } from "@/stores/settings";
 
@@ -111,6 +125,10 @@ const models = ref<AiModelOption[]>([]);
 const loadingModels = ref(false);
 const saving = ref(false);
 const error = ref("");
+const dialogVisible = ref(false);
+const editingId = ref("");
+const editingName = ref("");
+const editingContent = ref("");
 
 function defaultConfig(): OptimizeConfig {
   const id = `builtin-${Date.now()}`;
@@ -170,18 +188,33 @@ async function save(patch: Partial<OptimizeConfig>) {
   }
 }
 
-function savePrompts() {
-  save({ prompts: config.value.prompts.map(p => ({ ...p })) });
-}
-
 function onModelChange(key: string) {
   const [providerId, ...rest] = key.split("/");
   save({ providerId, modelId: rest.join("/") });
 }
 
-function addPrompt() {
-  const prompts = [...config.value.prompts, { id: `custom-${Date.now()}`, name: "新提示词", content: "" }];
-  save({ prompts, defaultPromptId: config.value.defaultPromptId });
+function openDialog(item?: PromptTemplate) {
+  editingId.value = item?.id ?? "";
+  editingName.value = item?.name ?? "";
+  editingContent.value = item?.content ?? "";
+  dialogVisible.value = true;
+}
+
+function confirmDialog() {
+  const name = editingName.value.trim();
+  const content = editingContent.value.trim();
+  if (!name || !content) return;
+  let prompts: PromptTemplate[];
+  let defaultPromptId = config.value.defaultPromptId;
+  if (editingId.value) {
+    prompts = config.value.prompts.map(p => p.id === editingId.value ? { ...p, name, content } : p);
+  } else {
+    const id = `custom-${Date.now()}`;
+    prompts = [...config.value.prompts, { id, name, content }];
+    if (!prompts.some(p => p.id === defaultPromptId)) defaultPromptId = id;
+  }
+  dialogVisible.value = false;
+  save({ prompts, defaultPromptId });
 }
 
 function removePrompt(id: string) {
@@ -231,22 +264,40 @@ onMounted(loadModels);
         margin: 0;
       }
     }
+    .promptRow {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 10px 12px;
+      border: 1px solid var(--el-border-color);
+      border-radius: 8px;
+      margin-bottom: 8px;
+      cursor: pointer;
+      &:hover {
+        border-color: var(--el-color-primary);
+      }
+      .promptName {
+        flex: 1;
+        min-width: 0;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+      .promptActions {
+        display: flex;
+        gap: 4px;
+        align-items: center;
+      }
+    }
+  }
+  .promptDialog {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
     .description {
       font-size: 12px;
       color: var(--el-text-color-secondary);
-      margin: 0 0 12px;
-    }
-    .promptItem {
-      border: 1px solid var(--el-border-color);
-      border-radius: 8px;
-      padding: 12px;
-      margin-bottom: 12px;
-      .promptItemHeader {
-        display: flex;
-        gap: 8px;
-        align-items: center;
-        margin-bottom: 8px;
-      }
+      margin: 0;
     }
   }
 }
