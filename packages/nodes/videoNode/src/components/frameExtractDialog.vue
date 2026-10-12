@@ -178,6 +178,12 @@ async function confirm() {
         position: { x, y },
         data: {
           label: `${node.data.label || label} · ${frame.time.toFixed(2)}s`,
+          prompt: "",
+          promptModel: [],
+          model: "",
+          size: "",
+          ratio: "16:9",
+          customParamValues: {},
           outputs: { image: { dataType: "IMAGE", value: { url: path, mimeType: "image/png" } } },
         },
       });
