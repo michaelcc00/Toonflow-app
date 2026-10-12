@@ -24,6 +24,7 @@
           <el-space class="itemActions" wrap>
             <el-button v-if="item.modelsUrl" text :icon="IconDownload" :loading="fetchingFile === item.fileName" :disabled="!!fetchingFile || !!deletingFile || !!item.loadError || !item.revision" @click="fetchModels(item)">获取模型</el-button>
             <el-button text :icon="IconEdit" :disabled="!!fetchingFile || !!deletingFile || !!item.loadError" @click="editProvider(item)">编辑模型</el-button>
+            <el-button text :icon="IconUpload" :disabled="!!fetchingFile || !!deletingFile || !!item.loadError" @click="exportProvider(item)">导出</el-button>
             <el-popconfirm title="确定删除此供应商及其模型？" confirmButtonText="删除" cancelButtonText="取消" @confirm="deleteProvider(item)">
               <template #reference><el-button text type="danger" :icon="IconTrash" :loading="deletingFile === item.fileName" :disabled="!!fetchingFile || !!deletingFile || !item.revision">删除</el-button></template>
             </el-popconfirm>
@@ -34,6 +35,8 @@
     <div class="providerActions">
       <el-button class="addButton" :icon="IconPlus" @click="openAdd('builtin')">添加供应商</el-button>
       <el-button class="addButton" :icon="IconSettings" @click="openAdd('custom')">添加自定义供应商</el-button>
+      <el-button class="addButton" :icon="IconDownload" @click="importProvider">导入供应商</el-button>
+      <input ref="importInput" type="file" accept="application/json,.json" style="display: none" @change="onImportFile" />
     </div>
     <component :is="mediaProviderDialog" v-model="providerDialogVisible" :mode="addMode" @added="saveProviderItem" />
     <component :is="editProviderDialog" v-model="editorVisible" :provider="editingProvider" @saved="saveProviderItem" />
@@ -44,7 +47,7 @@
 import axios from "axios";
 import { computed, defineAsyncComponent, onMounted, onBeforeUnmount, ref, shallowRef, type Component } from "vue";
 import { ElMessage } from "element-plus";
-import { IconPlus, IconSettings, IconEdit, IconTrash, IconDownload } from "@tabler/icons-vue";
+import { IconPlus, IconSettings, IconEdit, IconTrash, IconDownload, IconUpload } from "@tabler/icons-vue";
 import logoUrl from "@toonflow/assets/logo.svg";
 import type { MediaProvider } from "./types";
 import { settings, saveSettings } from "@/stores/settings";
@@ -63,6 +66,7 @@ const addMode = ref<"builtin" | "custom">("builtin");
 const editingProvider = ref<MediaProvider>();
 const deletingFile = ref("");
 const fetchingFile = ref("");
+const importInput = ref<HTMLInputElement>();
 let loadRequest = 0;
 
 function getProviderApiKey(id: string) {
@@ -162,6 +166,73 @@ function saveProviderItem(provider: MediaProvider) {
   const index = providers.value.findIndex(item => item.fileName === provider.fileName);
   if (index < 0) providers.value.push(provider);
   else providers.value.splice(index, 1, provider);
+}
+
+async function exportProvider(provider: MediaProvider) {
+  try {
+    const { data } = await axios.get<{ code: number; data: { fileName: string; source: string } }>(
+      "/api/providers/media/source", { params: { fileName: provider.fileName } });
+    if (data.code !== 200 || !data.data?.source) throw new Error("读取插件源码失败");
+    const configs = settings.value.mediaProviderConfigs as Record<string, Record<string, unknown>> | undefined;
+    const config = { ...(configs?.[provider.id] ?? {}) };
+    delete config.apiKey;
+    const payload = {
+      kind: "toonflow-media-provider",
+      version: 1,
+      label: provider.label,
+      fileName: provider.fileName,
+      source: data.data.source,
+      config,
+      models: provider.models ?? [],
+    };
+    const blob = new Blob([JSON.stringify(payload, null, 2)], { type: "application/json" });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement("a");
+    a.href = url;
+    a.download = `${provider.fileName.replace(/\.ts$/, "")}.toonflow-provider.json`;
+    a.click();
+    URL.revokeObjectURL(url);
+    ElMessage.success("已导出（不含 API Key）");
+  } catch (error) {
+    ElMessage.error(axios.isAxiosError(error) ? error.response?.data?.message || error.message : "导出失败");
+  }
+}
+
+function importProvider() {
+  importInput.value?.click();
+}
+
+async function onImportFile(event: Event) {
+  const input = event.target as HTMLInputElement;
+  const file = input.files?.[0];
+  input.value = "";
+  if (!file) return;
+  try {
+    const payload = JSON.parse(await file.text());
+    if (payload?.kind !== "toonflow-media-provider" || typeof payload.source !== "string" || !payload.source.trim()) {
+      throw new Error("不是有效的供应商导出文件");
+    }
+    const { data } = await axios.post<{ code: number; data: MediaProvider; message: string }>(
+      "/api/providers/media/add", { source: payload.source }, { timeout: 35000 });
+    if (data.code !== 200 || !data.data) throw new Error(data.message || "导入失败");
+    const provider = data.data;
+    if (payload.config && typeof payload.config === "object") {
+      await saveSettings(s => {
+        const configs = s.mediaProviderConfigs && typeof s.mediaProviderConfigs === "object" && !Array.isArray(s.mediaProviderConfigs)
+          ? s.mediaProviderConfigs as Record<string, unknown> : {};
+        return { mediaProviderConfigs: { ...configs, [provider.id]: { ...(payload.config as Record<string, unknown>) } } };
+      });
+    }
+    if (Array.isArray(payload.models) && payload.models.length > 0 && provider.revision) {
+      await axios.put("/api/providers/media/save", { fileName: provider.fileName, models: payload.models, revision: provider.revision });
+    }
+    saveProviderItem(provider);
+    invalidateNodeModels("media");
+    ElMessage.success(`已导入 ${provider.label}（需重新填写 API Key）`);
+    await loadProviders();
+  } catch (error) {
+    ElMessage.error(axios.isAxiosError(error) ? error.response?.data?.message || error.message : error instanceof Error ? error.message : "导入失败");
+  }
 }
 </script>
 
