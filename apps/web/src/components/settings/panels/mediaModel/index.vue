@@ -190,9 +190,11 @@ async function exportProvider(provider: MediaProvider) {
     const a = document.createElement("a");
     a.href = url;
     a.download = `${provider.fileName.replace(/\.ts$/, "")}.toonflow-provider.json`;
+    document.body.appendChild(a);
     a.click();
-    URL.revokeObjectURL(url);
-    ElMessage.success("已导出（不含 API Key）");
+    a.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+    ElMessage.success("已导出到浏览器下载目录（不含 API Key）");
   } catch (error) {
     ElMessage.error(axios.isAxiosError(error) ? error.response?.data?.message || error.message : "导出失败");
   }
