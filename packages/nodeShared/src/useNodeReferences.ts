@@ -25,6 +25,7 @@ export function useNodeReferences(handleId = "in") {
           name: `参考 ${index + 1}`,
           value: `{{ref ${index + 1}}}`,
           avatar: previews.value.get(referenceKey(item)) || undefined,
+          mediaType: item.dataType,
         }]
       : []
   ));

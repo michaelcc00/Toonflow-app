@@ -18,7 +18,7 @@ import { IconMaximize } from "@tabler/icons-vue";
 import xSender, { type AnyTagProps, type MentionItem } from "x-sender";
 import "x-sender/lib/XSender.css";
 
-const props = defineProps<{ references: (MentionItem & { value: string })[]; expandable?: boolean; placeholder?: string }>();
+const props = defineProps<{ references: (MentionItem & { value: string; mediaType?: string })[]; expandable?: boolean; placeholder?: string }>();
 const model = defineModel<AnyTagProps[][]>({ required: true });
 const text = defineModel<string>("text", { default: "" });
 const senderElement = ref<HTMLElement>();
@@ -40,7 +40,7 @@ function previewReference(event: MouseEvent) {
   previewReferenceId.value = reference.id;
 }
 
-function referenceHtml(reference: MentionItem & { value: string }) {
+function referenceHtml(reference: MentionItem & { value: string; mediaType?: string }) {
   const tag = document.createElement("span");
   tag.className = "imageReference";
   tag.dataset.referenceId = reference.id;
@@ -56,14 +56,26 @@ function referenceHtml(reference: MentionItem & { value: string }) {
   return tag.outerHTML;
 }
 
+function pictureTag(text: string): { reference: MentionItem & { value: string; mediaType?: string }; value: string } | undefined {
+  // <picture N> / <Picture N> → 第 N 张图片引用（仅图片，无歧义）；芯片序列化保留 <Picture N>
+  const match = /^<picture (\d+)>$/i.exec(text);
+  if (!match) return undefined;
+  const index = Number(match[1]) - 1;
+  const images = props.references.filter(item => item.mediaType === "IMAGE");
+  const reference = images[index] ?? (props.references.every(item => !item.mediaType) ? props.references[index] : undefined);
+  return reference ? { reference, value: `<Picture ${match[1]}>` } : undefined;
+}
+
 function normalizeModel(value: AnyTagProps[][]): AnyTagProps[][] {
   if (!value.length) return [[{ type: "Write", text: "" }]];
   return value.map(line => {
     const tags = line.flatMap((tag): AnyTagProps[] => {
-      if (tag.type === "Write") return tag.text.split(/(\{\{ref \d+\}\})/g).map(text => {
-        const reference = props.references.find(item => item.value === text);
-        return reference
-          ? { type: "Custom", html: `<span style="display: inline-block;">${referenceHtml(reference)}</span>` }
+      if (tag.type === "Write") return tag.text.split(/(\{\{ref \d+\}\}|<[Pp]icture \d+>)/g).map(text => {
+        const direct = props.references.find(item => item.value === text);
+        if (direct) return { type: "Custom", html: `<span style="display: inline-block;">${referenceHtml(direct)}</span>` };
+        const picture = pictureTag(text);
+        return picture
+          ? { type: "Custom", html: `<span style="display: inline-block;">${referenceHtml({ ...picture.reference, value: picture.value })}</span>` }
           : { type: "Write", text };
       });
       if (tag.type !== "Custom") return [tag];
