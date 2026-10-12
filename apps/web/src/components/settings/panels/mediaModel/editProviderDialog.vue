@@ -84,8 +84,22 @@
           <el-option label="文本输入" value="input" />
           <el-option label="数字输入" value="number" />
         </el-select>
-        <el-input v-if="editingParam.type === 'select'" v-model="editingParam.optionsText" placeholder="选项，用逗号分隔，如：1.5,2,3,4" aria-label="下拉选项" />
-        <el-input v-model="editingParam.defaultText" :placeholder="editingParam.type === 'switch' ? '默认值：true / false' : '默认值'" aria-label="默认值" />
+        <template v-if="editingParam.type === 'select'">
+          <el-input v-model="editingParam.optionsText" placeholder="选项，用逗号分隔，如：1.5,2,3,4" aria-label="下拉选项" />
+          <el-select v-model="editingParam.display" aria-label="展示方式">
+            <el-option label="下拉框" value="dropdown" />
+            <el-option label="平铺按钮" value="tiles" />
+          </el-select>
+        </template>
+        <el-select v-if="editingParam.type === 'switch'" v-model="editingParam.defaultText" aria-label="默认值">
+          <el-option label="默认关闭 (false)" value="false" />
+          <el-option label="默认开启 (true)" value="true" />
+        </el-select>
+        <el-input v-else v-model="editingParam.defaultText" placeholder="默认值" aria-label="默认值" />
+        <div class="paramRow2">
+          <el-input v-model="editingParam.visibleWhenParamId" placeholder="仅当参数 ID（留空则始终显示）" aria-label="条件参数 ID" />
+          <el-input v-model="editingParam.visibleWhenEquals" placeholder="等于该值时显示" aria-label="条件值" :disabled="!editingParam.visibleWhenParamId.trim()" />
+        </div>
       </div>
       <template #footer>
         <el-button @click="paramEditorVisible = false">取消</el-button>
@@ -126,7 +140,11 @@ const formError = ref("");
 const customParams = ref<CustomParamDef[]>([]);
 const paramEditorVisible = ref(false);
 const editingParamIndex = ref<number>();
-const editingParam = ref({ label: "", nodeId: "", fieldName: "", type: "switch" as CustomParamDef["type"], optionsText: "", defaultText: "" });
+const editingParam = ref({
+  label: "", nodeId: "", fieldName: "", type: "switch" as CustomParamDef["type"],
+  display: "dropdown" as "dropdown" | "tiles",
+  optionsText: "", defaultText: "", visibleWhenParamId: "", visibleWhenEquals: "",
+});
 const modelTypes = { get image() { return translate("图片"); }, get video() { return translate("视频"); }, get audio() { return translate("音频"); }, get text() { return translate("文本"); } };
 const modeLabels: Record<string, string> = {
   singleImage: "单图参考", multiReference: "多图参考", startEndRequired: "首尾帧必填",
@@ -177,13 +195,17 @@ function confirmModel(model: MediaProviderModel) {
 function editParam(index?: number) {
   editingParamIndex.value = index;
   const param = index === undefined ? undefined : customParams.value[index];
+  const visibleWhen = param?.visibleWhen;
   editingParam.value = {
     label: param?.label ?? "",
     nodeId: param?.nodeId ?? "",
     fieldName: param?.fieldName ?? "",
     type: param?.type ?? "switch",
+    display: param?.display ?? "dropdown",
     optionsText: param?.options?.join(",") ?? "",
     defaultText: param === undefined ? "" : String(param.defaultValue),
+    visibleWhenParamId: visibleWhen?.paramId ?? "",
+    visibleWhenEquals: visibleWhen === undefined ? "" : String(visibleWhen.equals),
   };
   paramEditorVisible.value = true;
 }
@@ -215,7 +237,13 @@ function confirmParam() {
     type: p.type,
     defaultValue: parseDefaultValue(p.type, p.defaultText),
   };
-  if (p.type === "select") param.options = p.optionsText.split(",").map(s => s.trim()).filter(Boolean);
+  if (p.type === "select") {
+    param.options = p.optionsText.split(",").map(s => s.trim()).filter(Boolean);
+    param.display = p.display;
+  }
+  if (p.visibleWhenParamId.trim()) {
+    param.visibleWhen = { paramId: p.visibleWhenParamId.trim(), equals: parseDefaultValue("input", p.visibleWhenEquals) as string };
+  }
   if (editingParamIndex.value === undefined) customParams.value.push(param);
   else customParams.value.splice(editingParamIndex.value, 1, param);
   paramEditorVisible.value = false;

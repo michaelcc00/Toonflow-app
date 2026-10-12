@@ -11,8 +11,10 @@ export type CustomParamDef = {
   nodeId: string;
   fieldName: string;
   type: "switch" | "select" | "input" | "number";
+  display?: "dropdown" | "tiles";
   defaultValue: string | number | boolean;
   options?: string[];
+  visibleWhen?: { paramId: string; equals: string | number | boolean };
 };
 
 export type MediaProvider = {

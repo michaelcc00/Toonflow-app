@@ -299,7 +299,8 @@ async function startGeneration() {
     ratio: data.value.ratio,
     outputDirectory: `assets/${id}`,
     images: references.flatMap(item => item.dataType === "IMAGE" && item.value ? [{ path: item.value.url, mimeType: item.value.mimeType }] : []),
-    other: data.value.customParamValues,
+    // ACT: 参数定义随值一起透传，插件不依赖自身配置里的 customParams（可能为空/过期）。
+    other: { ...data.value.customParamValues, __customParamDefs: customParams.value },
   };
   if (inpaintData) {
     let imageIndex = 3 + (inpaintData.images?.length ?? 0);

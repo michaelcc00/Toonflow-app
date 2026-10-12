@@ -31,35 +31,48 @@
       <template v-if="customParams.length">
         <div class="sectionLabel customParamTitle">{{ providerLabel }} 参数</div>
         <div class="customParams">
-          <div v-for="param in customParams" :key="param.id" class="customParamRow">
-            <span class="customParamLabel">{{ param.label }}</span>
-            <el-switch
-              v-if="param.type === 'switch'"
-              :modelValue="!!customValues[param.id]"
-              :disabled="disabled"
-              :aria-label="param.label"
-              @change="(value) => updateCustomValue(param.id, value === true)" />
-            <el-select
-              v-else-if="param.type === 'select'"
-              :modelValue="String(customValues[param.id] ?? param.defaultValue)"
-              :disabled="disabled"
-              :aria-label="param.label"
-              @change="(value) => updateCustomValue(param.id, value)">
-              <el-option v-for="opt in param.options ?? []" :key="opt" :label="opt" :value="opt" />
-            </el-select>
-            <el-input-number
-              v-else-if="param.type === 'number'"
-              :modelValue="Number(customValues[param.id] ?? param.defaultValue) || 0"
-              :disabled="disabled"
-              :aria-label="param.label"
-              @change="(value) => updateCustomValue(param.id, value ?? 0)" />
-            <el-input
-              v-else
-              :modelValue="String(customValues[param.id] ?? param.defaultValue)"
-              :disabled="disabled"
-              :aria-label="param.label"
-              @change="(value) => updateCustomValue(param.id, value)" />
-          </div>
+          <template v-for="param in customParams" :key="param.id">
+            <div v-if="isParamVisible(param)" class="customParamRow">
+              <span class="customParamLabel">{{ param.label }}</span>
+              <el-switch
+                v-if="param.type === 'switch'"
+                :modelValue="!!customValues[param.id]"
+                :disabled="disabled"
+                :aria-label="param.label"
+                @change="(value) => updateCustomValue(param.id, value === true)" />
+              <div v-else-if="param.type === 'select' && param.display === 'tiles'" class="tileOptions" role="group" :aria-label="param.label">
+                <el-button
+                  v-for="opt in param.options ?? []"
+                  :key="opt"
+                  size="small"
+                  :disabled="disabled"
+                  :aria-pressed="String(customValues[param.id] ?? param.defaultValue) === opt"
+                  @click="updateCustomValue(param.id, opt)">
+                  {{ opt }}
+                </el-button>
+              </div>
+              <el-select
+                v-else-if="param.type === 'select'"
+                :modelValue="String(customValues[param.id] ?? param.defaultValue)"
+                :disabled="disabled"
+                :aria-label="param.label"
+                @change="(value) => updateCustomValue(param.id, value)">
+                <el-option v-for="opt in param.options ?? []" :key="opt" :label="opt" :value="opt" />
+              </el-select>
+              <el-input-number
+                v-else-if="param.type === 'number'"
+                :modelValue="Number(customValues[param.id] ?? param.defaultValue) || 0"
+                :disabled="disabled"
+                :aria-label="param.label"
+                @change="(value) => updateCustomValue(param.id, value ?? 0)" />
+              <el-input
+                v-else
+                :modelValue="String(customValues[param.id] ?? param.defaultValue)"
+                :disabled="disabled"
+                :aria-label="param.label"
+                @change="(value) => updateCustomValue(param.id, value)" />
+            </div>
+          </template>
         </div>
       </template>
     </div>
@@ -76,14 +89,31 @@ export interface CustomParamDef {
   nodeId: string;
   fieldName: string;
   type: "switch" | "select" | "input" | "number";
+  display?: "dropdown" | "tiles";
   defaultValue: string | number | boolean;
   options?: string[];
+  visibleWhen?: { paramId: string; equals: string | number | boolean };
 }
 
-defineProps<{ sizes: string[]; ratios: string[]; disabled?: boolean; providerLabel?: string; customParams: CustomParamDef[] }>();
+const props = defineProps<{ sizes: string[]; ratios: string[]; disabled?: boolean; providerLabel?: string; customParams: CustomParamDef[] }>();
 const size = defineModel<string>("size", { required: true });
 const ratio = defineModel<string>("ratio", { required: true });
 const customValues = defineModel<Record<string, unknown>>("customValues", { default: () => ({}) });
+
+function getParamValue(param: CustomParamDef): unknown {
+  return param.id in customValues.value ? customValues.value[param.id] : param.defaultValue;
+}
+
+function isParamVisible(param: CustomParamDef): boolean {
+  const cond = param.visibleWhen;
+  if (!cond || !cond.paramId) return true;
+  const target = props.customParams.find(p => p.id === cond.paramId);
+  if (!target) return true;
+  const current = getParamValue(target);
+  // ACT: 开关值按布尔比较，其余按字符串比较，避免 true/"true" 误判。
+  if (typeof cond.equals === "boolean") return !!current === cond.equals;
+  return String(current ?? "") === String(cond.equals);
+}
 
 function updateCustomValue(id: string, value: unknown) {
   customValues.value = { ...customValues.value, [id]: value };
@@ -195,6 +225,21 @@ function ratioStyle(value: string) {
       }
 
       .el-select, .el-input, .el-input-number { width: 130px; }
+
+      .tileOptions {
+        display: flex;
+        gap: 6px;
+        flex-wrap: wrap;
+
+        .el-button {
+          margin: 0;
+          &[aria-pressed="true"] {
+            color: var(--el-color-primary);
+            border-color: var(--el-color-primary);
+            background: var(--el-color-primary-light-9);
+          }
+        }
+      }
     }
   }
 }
