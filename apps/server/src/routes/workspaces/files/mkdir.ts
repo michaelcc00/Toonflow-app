@@ -11,7 +11,11 @@ export default router.post("/", validateFields({ directory: z.string().min(1).ma
   const { directory, path } = await u.workspaceFile.resolveWorkspaceFile(req, req.body.directory, req.body.path);
   u.workspaceFile.protectWorkspaceRoot(directory, path);
   const release = u.workspaceFile.lockWorkspaceFiles([path]);
-  try { await mkdir(path); }
+  try {
+    await mkdir(path).catch((error: NodeJS.ErrnoException) => {
+      if (error.code !== "EEXIST") throw error;
+    });
+  }
   finally { release(); }
   res.json(success());
 });
