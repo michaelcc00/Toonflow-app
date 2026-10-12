@@ -60,7 +60,7 @@ export function useImageInpaint() {
       signal.throwIfAborted();
       requested = true;
       // ACT: 供应商尚未统一支持原生 mask；使用涂色参考引导，再按本地蒙版合成，严格保留区域外像素。
-      const [result] = await ai.generateImage({
+      const { files: [result] } = await ai.generateImage({
         ...input,
         directory,
         outputDirectory: `assets/${temporaryId}`,
