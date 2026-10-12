@@ -16,7 +16,7 @@ export default Router().post("/", validateFields({
   imagePaths: z.array(imageSchema).max(9).optional(),
   language: z.enum(["zh", "en"]).optional(),
   readMedia: z.boolean().optional(),
-  systemTemplate: z.string().min(1).max(20000).optional(),
+  systemTemplate: z.string().min(1).max(100000).optional(),
   directory: z.string().min(1).max(4096).optional(),
 }), async (req, res) => {
   const body = req.body as {
