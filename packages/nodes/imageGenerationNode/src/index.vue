@@ -174,6 +174,8 @@ const deleting = ref(false);
 const previewVisible = ref(false);
 const inpaintPreviewVisible = ref(false);
 const imageWidth = ref(0);
+const actualWidth = ref(0);
+const actualHeight = ref(0);
 let generationController: AbortController | undefined;
 const generationState = useNodeGeneration(outputs, () => generationController?.abort());
 const { generating } = generationState;
@@ -188,8 +190,9 @@ const customParamValues = computed<Record<string, unknown>>({
   get: () => data.value.customParamValues ?? {},
   set: (val) => { data.value.customParamValues = val; },
 });
-// ACT: 像素分辨率按供应商 1K/2K/4K 长边规则估算，与插件 t2iResolveSize 一致。
+// ACT: 优先显示图片实际像素（加载后从 naturalWidth/Height 取）；未加载时按设置估算。
 const pixelResolution = computed(() => {
+  if (actualWidth.value > 0 && actualHeight.value > 0) return `${actualWidth.value} × ${actualHeight.value}`;
   const size = data.value.size.trim().toLowerCase();
   const ratio = data.value.ratio.trim();
   const direct = /^(\d+)\s*[x×*]\s*(\d+)$/i.exec(data.value.size);
@@ -373,6 +376,8 @@ nodeEvent.on("delete", async () => {
 async function resizeImage(event: Event) {
   const image = event.currentTarget as HTMLImageElement;
   if (!image.naturalWidth || !image.naturalHeight) return;
+  actualWidth.value = image.naturalWidth;
+  actualHeight.value = image.naturalHeight;
   imageWidth.value = (240 * image.naturalWidth) / image.naturalHeight;
   await nextTick();
   updateNodeInternals();

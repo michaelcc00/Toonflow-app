@@ -162,6 +162,8 @@ const deleting = ref(false);
 const player = ref<InstanceType<typeof videoPlayer>>();
 const actions = ref<InstanceType<typeof videoActions>>();
 const videoWidth = ref(0);
+const actualVideoWidth = ref(0);
+const actualVideoHeight = ref(0);
 let generationController: AbortController | undefined;
 const optimizing = ref(false);
 const showOptimized = ref(false);
@@ -201,6 +203,10 @@ let modelsRequest: Promise<void> | undefined;
 const ratioOptions = ["16:9", "9:16", "1:1", "4:3", "3:4"];
 const selectedModel = computed(() => models.value.find((item) => JSON.stringify([item.providerId, item.modelId]) === data.value.model));
 const videoResolutionHint = computed(() => {
+  // ACT: 优先显示视频实际像素；未加载时显示设置的分辨率/时长。
+  if (actualVideoWidth.value > 0 && actualVideoHeight.value > 0) {
+    return `${actualVideoWidth.value} × ${actualVideoHeight.value}`;
+  }
   const parts = [data.value.resolution, data.value.duration ? `${data.value.duration}s` : ""].filter(Boolean);
   return parts.join(" · ");
 });
@@ -425,6 +431,8 @@ nodeEvent.on("delete", async () => {
 async function resizeVideo(event: Event) {
   const video = event.currentTarget as HTMLVideoElement;
   if (!video.videoWidth || !video.videoHeight) return;
+  actualVideoWidth.value = video.videoWidth;
+  actualVideoHeight.value = video.videoHeight;
   videoWidth.value = Math.max(180, (240 * video.videoWidth) / video.videoHeight);
   await nextTick();
   updateNodeInternals();
