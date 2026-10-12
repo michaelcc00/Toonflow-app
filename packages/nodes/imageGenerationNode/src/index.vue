@@ -79,12 +79,11 @@
             v-if="editor?.mode !== 'inpaint'"
             v-model:size="data.size"
             v-model:ratio="data.ratio"
-            v-model:threeView="data.threeView"
-            v-model:upscale="data.upscale"
-            v-model:upscaleFactor="data.upscaleFactor"
+            v-model:customValues="data.customParamValues"
             :sizes="sizeOptions"
             :ratios="ratioOptions"
-            :showExtra="showExtraParams"
+            :customParams="customParams"
+            :providerLabel="selectedModel?.providerLabel"
             :disabled="generating || deleting || !selectedModel" />
           <el-button v-if="editor?.mode === 'inpaint'" class="confirmButton" type="primary" :icon="IconCheck" :loading="editor.busy" :disabled="deleting || uploading || !generationPrompt" @click="confirmInpaint().catch(error => showNodeError(error, '重绘节点创建失败'))">确认</el-button>
           <el-button
@@ -144,7 +143,7 @@ const { id, node, nodeProps, nodeEvent, outputs, files, ai, updateNodeInternals 
   label: "图片生成",
 });
 type PromptModel = NonNullable<InstanceType<typeof promptInput>["$props"]["modelValue"]>;
-const data = computed(() => node.data as { prompt: string; promptModel: PromptModel; inpaintPrompt: string; inpaintPromptModel: PromptModel; model: string; size: string; ratio: string; threeView?: boolean; upscale?: boolean; upscaleFactor?: number | string; inpaint?: ImageInpaint });
+const data = computed(() => node.data as { prompt: string; promptModel: PromptModel; inpaintPrompt: string; inpaintPromptModel: PromptModel; model: string; size: string; ratio: string; customParamValues?: Record<string, unknown>; inpaint?: ImageInpaint });
 data.value.prompt ??= "";
 data.value.promptModel ??= [];
 data.value.inpaintPrompt ??= "";
@@ -152,9 +151,7 @@ data.value.inpaintPromptModel ??= [];
 data.value.model ??= "";
 data.value.size ??= "";
 data.value.ratio ??= "16:9";
-data.value.threeView ??= false;
-data.value.upscale ??= false;
-data.value.upscaleFactor ??= 2;
+data.value.customParamValues ??= {};
 const { refList, referenceMentions, setReferencePreview, removeReference } = useNodeReferences();
 const models = ref<NodeMediaModel[]>([]);
 const modelsLoading = ref(false);
@@ -184,8 +181,7 @@ let modelsRequest: Promise<void> | undefined;
 const selectedModel = computed(() => models.value.find((item) => JSON.stringify([item.providerId, item.modelId]) === data.value.model));
 const sizeOptions = computed(() => (selectedModel.value?.imageSizes?.length ? selectedModel.value.imageSizes : ["2K"]));
 const ratioOptions = computed(() => (selectedModel.value?.imageRatios?.length ? selectedModel.value.imageRatios : ["16:9"]));
-// RunningHub 专属参数只在自研 runninghubQwenImage 供应商选中时展示；其他供应商忽略 input.other。
-const showExtraParams = computed(() => selectedModel.value?.providerId === "runninghubQwenImage");
+const customParams = computed(() => selectedModel.value?.customParams ?? []);
 watch(
   selectedModel,
   (choice) => {
@@ -303,10 +299,7 @@ async function startGeneration() {
     ratio: data.value.ratio,
     outputDirectory: `assets/${id}`,
     images: references.flatMap(item => item.dataType === "IMAGE" && item.value ? [{ path: item.value.url, mimeType: item.value.mimeType }] : []),
-    // RunningHub 专属参数：节点上的值优先于供应商配置；非 RunningHub 供应商不透传。
-    ...(showExtraParams.value
-      ? { other: { threeView: data.value.threeView ?? false, upscale: data.value.upscale ?? false, upscaleFactor: data.value.upscaleFactor ?? 2 } }
-      : {}),
+    other: data.value.customParamValues,
   };
   if (inpaintData) {
     let imageIndex = 3 + (inpaintData.images?.length ?? 0);

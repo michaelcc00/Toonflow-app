@@ -71,6 +71,16 @@ export interface CanvasContext extends CanvasInfo {
   call(request: CanvasToolCall, signal?: AbortSignal): Promise<unknown>;
 }
 
+export interface CustomParamDef {
+  id: string;
+  label: string;
+  nodeId: string;
+  fieldName: string;
+  type: "switch" | "select" | "input" | "number";
+  defaultValue: string | number | boolean;
+  options?: string[];
+}
+
 export interface MediaModel {
   providerId: string;
   providerLabel: string;
@@ -83,6 +93,7 @@ export interface MediaModel {
   durationResolutionMap?: { duration: number[]; resolution: string[] }[];
   audio?: boolean | "optional";
   voices?: { title: string; voice: string }[];
+  customParams?: CustomParamDef[];
 }
 
 export interface MediaReference {
@@ -112,10 +123,9 @@ export interface MediaGenerationRequest {
   language?: string;
   format?: string;
   sampleRate?: number;
+  other?: Record<string, unknown>;
   mode?: "singleImage" | "startEndRequired" | "endFrameOptional" | "startFrameOptional" | "text"
     | (`${"image" | "video" | "audio"}Reference:${number}`)[];
-  /** 供应商专属参数；宿主只透传不解读，由各供应商自行读取。 */
-  other?: Record<string, unknown>;
 }
 
 export interface GeneratedMedia {

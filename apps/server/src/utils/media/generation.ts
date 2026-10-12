@@ -30,12 +30,15 @@ function imageOptions(value: unknown, pattern: RegExp) {
 
 export async function listMediaModels(): Promise<MediaModel[]> {
   const installedProviders = await listMediaProviders();
+  const providerConfigs = (u.conf.get("mediaProviderConfigs") ?? {}) as Record<string, Record<string, unknown>>;
   return installedProviders.flatMap(provider => provider.models.flatMap(model => {
     if (model.type !== "image" && model.type !== "video" && model.type !== "audio") return [];
     const builtIn = (mediaProviders as readonly Provider[]).find(item => item.id === provider.id)?.models.find(item => item.id === model.id);
+    const customParams = providerConfigs[provider.id]?.customParams;
     return [{
       providerId: provider.id, providerLabel: provider.label, modelId: model.id, label: model.label, type: model.type,
       mode: model.mode, durationResolutionMap: model.durationResolutionMap, audio: model.audio,
+      ...(Array.isArray(customParams) ? { customParams } : {}),
       ...(model.type === "audio" ? { voices: model.voices } : {}),
       ...(model.type === "image" ? {
         imageSizes: imageOptions(Array.isArray(model.imageSizes) ? model.imageSizes : builtIn?.imageSizes, /^[^\u0000-\u001f\u007f]+$/),
@@ -155,7 +158,6 @@ export async function generateMedia(
     ? await provider.generateAudio!({
       model: request.modelId, text: request.prompt, images, audios: await references(request.audios, "audio"),
       voice: request.voice, speed: request.speed, volume: request.volume, pitch: request.pitch, language: request.language, format: request.format, sampleRate: request.sampleRate,
-      other: request.other,
     })
     : mediaType === "image"
     ? await provider.generateImage!({ model: request.modelId, prompt: request.prompt, images, ratio: request.ratio, size: request.size, other: request.other })

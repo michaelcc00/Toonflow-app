@@ -28,28 +28,38 @@
           </span>
         </el-button>
       </div>
-      <template v-if="showExtra">
-        <div class="sectionLabel extraTitle">RunningHub 参数</div>
-        <div class="extraRow">
-          <span class="extraLabel">生成三视图</span>
-          <el-switch v-model="threeView" :disabled="disabled" aria-label="是否生成三视图" />
-        </div>
-        <div class="extraRow">
-          <span class="extraLabel">放大</span>
-          <el-switch v-model="upscale" :disabled="disabled" aria-label="是否放大" />
-        </div>
-        <div class="extraRow">
-          <span class="extraLabel">放大倍数</span>
-          <el-select
-            v-model="upscaleFactor"
-            :disabled="disabled || !upscale"
-            filterable
-            allow-create
-            class="extraSelect"
-            placeholder="选择或输入"
-            aria-label="放大倍数">
-            <el-option v-for="item in scaleOptions" :key="item" :label="String(item)" :value="item" />
-          </el-select>
+      <template v-if="customParams.length">
+        <div class="sectionLabel customParamTitle">{{ providerLabel }} 参数</div>
+        <div class="customParams">
+          <div v-for="param in customParams" :key="param.id" class="customParamRow">
+            <span class="customParamLabel">{{ param.label }}</span>
+            <el-switch
+              v-if="param.type === 'switch'"
+              :modelValue="!!customValues[param.id]"
+              :disabled="disabled"
+              :aria-label="param.label"
+              @change="(value) => updateCustomValue(param.id, value === true)" />
+            <el-select
+              v-else-if="param.type === 'select'"
+              :modelValue="String(customValues[param.id] ?? param.defaultValue)"
+              :disabled="disabled"
+              :aria-label="param.label"
+              @change="(value) => updateCustomValue(param.id, value)">
+              <el-option v-for="opt in param.options ?? []" :key="opt" :label="opt" :value="opt" />
+            </el-select>
+            <el-input-number
+              v-else-if="param.type === 'number'"
+              :modelValue="Number(customValues[param.id] ?? param.defaultValue) || 0"
+              :disabled="disabled"
+              :aria-label="param.label"
+              @change="(value) => updateCustomValue(param.id, value ?? 0)" />
+            <el-input
+              v-else
+              :modelValue="String(customValues[param.id] ?? param.defaultValue)"
+              :disabled="disabled"
+              :aria-label="param.label"
+              @change="(value) => updateCustomValue(param.id, value)" />
+          </div>
         </div>
       </template>
     </div>
@@ -57,17 +67,27 @@
 </template>
 
 <script setup lang="ts">
-import { ElButton, ElPopover, ElRadioGroup, ElRadioButton, ElSwitch, ElSelect, ElOption } from "element-plus";
+import { ElButton, ElInput, ElInputNumber, ElOption, ElPopover, ElRadioGroup, ElRadioButton, ElSelect, ElSwitch } from "element-plus";
 import { IconChevronUp } from "@tabler/icons-vue";
 
-defineProps<{ sizes: string[]; ratios: string[]; disabled?: boolean; showExtra?: boolean }>();
+export interface CustomParamDef {
+  id: string;
+  label: string;
+  nodeId: string;
+  fieldName: string;
+  type: "switch" | "select" | "input" | "number";
+  defaultValue: string | number | boolean;
+  options?: string[];
+}
+
+defineProps<{ sizes: string[]; ratios: string[]; disabled?: boolean; providerLabel?: string; customParams: CustomParamDef[] }>();
 const size = defineModel<string>("size", { required: true });
 const ratio = defineModel<string>("ratio", { required: true });
-// RunningHub 专属参数（仅 showExtra 时展示）；经 input.other 透传给供应商，节点上的值优先于供应商配置。
-const threeView = defineModel<boolean>("threeView", { default: false });
-const upscale = defineModel<boolean>("upscale", { default: false });
-const upscaleFactor = defineModel<number | string>("upscaleFactor", { default: 2 });
-const scaleOptions = [1.5, 2, 3, 4];
+const customValues = defineModel<Record<string, unknown>>("customValues", { default: () => ({}) });
+
+function updateCustomValue(id: string, value: unknown) {
+  customValues.value = { ...customValues.value, [id]: value };
+}
 
 function ratioStyle(value: string) {
   const [width = 1, height = 1] = value.split(":").map(Number);
@@ -155,17 +175,27 @@ function ratioStyle(value: string) {
     }
   }
 
-  .extraTitle { margin-top: 14px; }
-  .extraRow {
+  .customParamTitle { margin-top: 14px; }
+
+  .customParams {
     display: flex;
-    align-items: center;
-    justify-content: space-between;
-    padding: 6px 0;
-    .extraLabel {
-      color: var(--el-text-color-primary);
-      font-size: 13px;
+    flex-direction: column;
+    gap: 10px;
+
+    .customParamRow {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 12px;
+
+      .customParamLabel {
+        flex: 1;
+        min-width: 0;
+        font-size: 13px;
+      }
+
+      .el-select, .el-input, .el-input-number { width: 130px; }
     }
-    .extraSelect { width: 130px; }
   }
 }
 </style>

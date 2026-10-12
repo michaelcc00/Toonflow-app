@@ -26,7 +26,6 @@ export type NodeImageRequest = {
   images?: { path: string; mimeType: string }[];
   ratio?: string;
   size?: string;
-  /** 供应商专属参数；宿主只透传不解读，由各供应商自行读取。 */
   other?: Record<string, unknown>;
 };
 export type NodeImageResult = { path: string; mimeType: string; mediaType: "image" };

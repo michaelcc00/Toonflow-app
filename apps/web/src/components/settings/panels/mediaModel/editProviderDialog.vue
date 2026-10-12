@@ -14,6 +14,20 @@
       <messageMarkdown v-if="provider?.readme" class="providerReadme" :content="provider.readme" />
       <form-create v-model="formValues" v-model:api="formApi" :rule="formRules" :option="formOptions" />
       <div class="modelHeader">
+        <h4>自定义参数</h4>
+        <el-button :icon="IconPlus" size="small" :disabled="saving" @click="editParam()">添加</el-button>
+      </div>
+      <div class="paramList">
+        <div v-for="(param, index) in customParams" :key="param.id" class="paramRow" @click="editParam(index)">
+          <span class="paramLabel">{{ param.label }}</span>
+          <el-text type="info" size="small">节点 {{ param.nodeId }} · {{ param.fieldName }}</el-text>
+          <span class="paramActions" @click.stop>
+            <el-button text size="small" type="danger" :icon="IconTrash" :disabled="saving" :aria-label="`删除参数 ${param.label}`" @click="customParams.splice(index, 1)" />
+          </span>
+        </div>
+        <el-text v-if="!customParams.length" type="info">暂无自定义参数，点击添加</el-text>
+      </div>
+      <div class="modelHeader">
         <h4>模型配置 <el-text type="info">{{ models.length }}</el-text></h4>
         <el-button :icon="IconPlus" size="small" :disabled="saving" @click="editModel()">手动添加</el-button>
       </div>
@@ -51,6 +65,33 @@
       :model="editingModelIndex === undefined ? undefined : models[editingModelIndex]"
       :models="models"
       @confirmed="confirmModel" />
+    <el-dialog
+      v-model="paramEditorVisible"
+      :title="editingParamIndex === undefined ? '添加参数' : '编辑参数'"
+      width="min(560px, calc(100vw - 32px))"
+      alignCenter
+      appendToBody
+      :closeOnClickModal="false">
+      <div class="paramForm">
+        <el-input v-model="editingParam.label" placeholder="标签，如：是否生成三视图" aria-label="参数标签" />
+        <div class="paramRow2">
+          <el-input v-model="editingParam.nodeId" placeholder="节点 ID，如：196" aria-label="节点 ID" />
+          <el-input v-model="editingParam.fieldName" placeholder="字段名，如：value" aria-label="字段名" />
+        </div>
+        <el-select v-model="editingParam.type" aria-label="参数类型">
+          <el-option label="开关" value="switch" />
+          <el-option label="下拉选择" value="select" />
+          <el-option label="文本输入" value="input" />
+          <el-option label="数字输入" value="number" />
+        </el-select>
+        <el-input v-if="editingParam.type === 'select'" v-model="editingParam.optionsText" placeholder="选项，用逗号分隔，如：1.5,2,3,4" aria-label="下拉选项" />
+        <el-input v-model="editingParam.defaultText" :placeholder="editingParam.type === 'switch' ? '默认值：true / false' : '默认值'" aria-label="默认值" />
+      </div>
+      <template #footer>
+        <el-button @click="paramEditorVisible = false">取消</el-button>
+        <el-button type="primary" :disabled="!canSaveParam" @click="confirmParam">确定</el-button>
+      </template>
+    </el-dialog>
   </el-dialog>
 </template>
 
@@ -60,10 +101,11 @@ import { translate } from "@toonflow/i18n/vue";
 import axios from "axios";
 import { computed, defineAsyncComponent, ref, shallowRef, toRaw, watch, type Component } from "vue";
 import { IconPlus, IconTrash, IconDeviceFloppy, IconEdit } from "@tabler/icons-vue";
+import { ElButton, ElCard, ElDialog, ElInput, ElOption, ElSelect, ElText, ElTag, ElAlert } from "element-plus";
 import formCreate, { type Api, type Options } from "../../formCreate";
 import { modelIcon } from "@toonflow/model-icons";
 import messageMarkdown from "@/components/messageMarkdown.vue";
-import type { MediaProvider, MediaProviderModel } from "./types";
+import type { CustomParamDef, MediaProvider, MediaProviderModel } from "./types";
 import { settings, saveSettings } from "@/stores/settings";
 import { invalidateNodeModels } from "@toonflow/nodes-scaffold/nodeAi";
 
@@ -81,6 +123,10 @@ const formValues = ref<Record<string, unknown>>({});
 const formOptions = computed<Options>(() => ({ form: { labelPosition: "top", disabled: saving.value }, appendValue: false, submitBtn: false, resetBtn: false }));
 const revision = ref("");
 const formError = ref("");
+const customParams = ref<CustomParamDef[]>([]);
+const paramEditorVisible = ref(false);
+const editingParamIndex = ref<number>();
+const editingParam = ref({ label: "", nodeId: "", fieldName: "", type: "switch" as CustomParamDef["type"], optionsText: "", defaultText: "" });
 const modelTypes = { get image() { return translate("图片"); }, get video() { return translate("视频"); }, get audio() { return translate("音频"); }, get text() { return translate("文本"); } };
 const modeLabels: Record<string, string> = {
   singleImage: "单图参考", multiReference: "多图参考", startEndRequired: "首尾帧必填",
@@ -93,9 +139,16 @@ watch(visible, isVisible => {
   formError.value = "";
   modelEditorVisible.value = false;
   editingModelIndex.value = undefined;
+  paramEditorVisible.value = false;
+  editingParamIndex.value = undefined;
   const configs = settings.value.mediaProviderConfigs as Record<string, Record<string, unknown>> | undefined;
   formRules.value = formCreate.copyRules(provider?.rules ?? []);
-  formValues.value = structuredClone(toRaw((provider && configs?.[provider.id]) ?? {}));
+  const providerConfig = provider && configs?.[provider.id];
+  formValues.value = structuredClone(toRaw(providerConfig ?? {}));
+  const rawParams = (providerConfig as { customParams?: unknown } | undefined)?.customParams;
+  customParams.value = Array.isArray(rawParams) ? rawParams.filter((p): p is CustomParamDef =>
+    !!p && typeof p === "object" && typeof (p as CustomParamDef).id === "string" && typeof (p as CustomParamDef).label === "string"
+    && typeof (p as CustomParamDef).nodeId === "string" && typeof (p as CustomParamDef).fieldName === "string") : [];
   revision.value = provider?.revision ?? "";
   models.value = JSON.parse(JSON.stringify(provider?.models ?? []));
 }, { immediate: true });
@@ -121,6 +174,53 @@ function confirmModel(model: MediaProviderModel) {
   else models.value.splice(index, 1, model);
 }
 
+function editParam(index?: number) {
+  editingParamIndex.value = index;
+  const param = index === undefined ? undefined : customParams.value[index];
+  editingParam.value = {
+    label: param?.label ?? "",
+    nodeId: param?.nodeId ?? "",
+    fieldName: param?.fieldName ?? "",
+    type: param?.type ?? "switch",
+    optionsText: param?.options?.join(",") ?? "",
+    defaultText: param === undefined ? "" : String(param.defaultValue),
+  };
+  paramEditorVisible.value = true;
+}
+
+const canSaveParam = computed(() => {
+  const p = editingParam.value;
+  return !!p.label.trim() && !!p.nodeId.trim() && !!p.fieldName.trim()
+    && (p.type !== "select" || !!p.optionsText.trim());
+});
+
+function parseDefaultValue(type: CustomParamDef["type"], text: string): string | number | boolean {
+  const trimmed = text.trim();
+  if (type === "switch") return trimmed === "true";
+  if (type === "number") {
+    const num = Number(trimmed);
+    return trimmed !== "" && Number.isFinite(num) ? num : 0;
+  }
+  return trimmed;
+}
+
+function confirmParam() {
+  if (!canSaveParam.value) return;
+  const p = editingParam.value;
+  const param: CustomParamDef = {
+    id: editingParamIndex.value === undefined ? `param-${Date.now()}` : customParams.value[editingParamIndex.value]!.id,
+    label: p.label.trim(),
+    nodeId: p.nodeId.trim(),
+    fieldName: p.fieldName.trim(),
+    type: p.type,
+    defaultValue: parseDefaultValue(p.type, p.defaultText),
+  };
+  if (p.type === "select") param.options = p.optionsText.split(",").map(s => s.trim()).filter(Boolean);
+  if (editingParamIndex.value === undefined) customParams.value.push(param);
+  else customParams.value.splice(editingParamIndex.value, 1, param);
+  paramEditorVisible.value = false;
+}
+
 async function saveModels() {
   if (saving.value || !provider || !formApi.value) return;
   const { id: providerId, fileName } = provider;
@@ -135,6 +235,7 @@ async function saveModels() {
       config.apiKey = typeof config.apiKey === "string" ? config.apiKey.trim() : "";
       if ((config.apiKey as string).length > 8192) throw new Error("API Key 过长");
     }
+    config.customParams = customParams.value;
     const ids = new Set<string>();
     const values = models.value.map((item, index) => {
       const id = item.id.trim();
@@ -192,8 +293,38 @@ async function saveModels() {
     justify-content: space-between;
     gap: 12px;
     margin-bottom: 12px;
+    margin-top: 20px;
 
     h4 { margin: 0; }
+  }
+
+  .paramList {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    margin-bottom: 8px;
+
+    .paramRow {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 8px 12px;
+      border: 1px solid var(--el-border-color);
+      border-radius: 8px;
+      cursor: pointer;
+
+      &:hover { border-color: var(--el-color-primary); }
+
+      .paramLabel {
+        flex: 1;
+        min-width: 0;
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+      }
+
+      .paramActions { display: flex; align-items: center; }
+    }
   }
 
   .modelList {
@@ -245,4 +376,17 @@ async function saveModels() {
 }
 
 .formError { margin-top: 16px; }
+
+.paramForm {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+
+  .paramRow2 {
+    display: flex;
+    gap: 12px;
+
+    > * { flex: 1; min-width: 0; }
+  }
+}
 </style>
