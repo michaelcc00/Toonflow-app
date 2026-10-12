@@ -40,6 +40,7 @@
       <div v-else class="imageEmpty" role="img" aria-label="暂无生成图片">
         <icon-photo-ai :size="48" stroke="1.25" aria-hidden="true" />
       </div>
+      <div v-if="pixelResolution" class="resolutionHint" aria-hidden="true">{{ pixelResolution }}</div>
     </div>
     <template v-if="editor?.mode !== 'mark'" #bottom>
       <div v-if="lightingVisible" ref="lightingTarget" />
@@ -186,6 +187,26 @@ const customParams = computed(() => selectedModel.value?.customParams ?? []);
 const customParamValues = computed<Record<string, unknown>>({
   get: () => data.value.customParamValues ?? {},
   set: (val) => { data.value.customParamValues = val; },
+});
+// ACT: 像素分辨率按供应商 1K/2K/4K 长边规则估算，与插件 t2iResolveSize 一致。
+const pixelResolution = computed(() => {
+  const size = data.value.size.trim().toLowerCase();
+  const ratio = data.value.ratio.trim();
+  const direct = /^(\d+)\s*[x×*]\s*(\d+)$/i.exec(data.value.size);
+  if (direct) {
+    const w = Math.round(Number(direct[1]) / 32) * 32;
+    const h = Math.round(Number(direct[2]) / 32) * 32;
+    return w > 0 && h > 0 ? `${w} × ${h}` : "";
+  }
+  const longSide = { "1k": 1024, "2k": 2048, "4k": 4096 }[size];
+  const match = /^(\d+(?:\.\d+)?)\s*[:：]\s*(\d+(?:\.\d+)?)$/.exec(ratio);
+  if (!longSide || !match) return "";
+  const rw = Number(match[1]);
+  const rh = Number(match[2]);
+  if (!(rw > 0) || !(rh > 0)) return "";
+  const width = rw >= rh ? longSide : Math.round(longSide * rw / rh / 32) * 32;
+  const height = rw >= rh ? Math.round(longSide * rh / rw / 32) * 32 : longSide;
+  return `${width} × ${height}`;
 });
 watch(
   selectedModel,
@@ -468,6 +489,25 @@ nodeTools.register({
   min-height: 144px;
   overflow: hidden;
   border-radius: var(--el-border-radius-base);
+
+  .resolutionHint {
+    position: absolute;
+    bottom: 8px;
+    left: 50%;
+    transform: translateX(-50%);
+    padding: 2px 8px;
+    border-radius: 4px;
+    background: #000a;
+    color: #fff;
+    font-size: 11px;
+    line-height: 1.6;
+    white-space: nowrap;
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 0.15s;
+  }
+
+  &:hover .resolutionHint { opacity: 1; }
 
   .inpaintGuide {
     position: relative;

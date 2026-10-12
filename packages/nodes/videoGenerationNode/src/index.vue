@@ -39,6 +39,7 @@
       <div v-else class="videoEmpty" role="img" aria-label="暂无生成视频">
         <icon-camera-ai :size="48" stroke="1.25" aria-hidden="true" />
       </div>
+      <div v-if="videoResolutionHint" class="resolutionHint" aria-hidden="true">{{ videoResolutionHint }}</div>
     </div>
     <template #bottom>
       <el-card class="promptCard" shadow="never" :bodyStyle="{ padding: '14px 16px 12px' }">
@@ -51,10 +52,12 @@
           {{ selectedMode === "startFrameOptional" ? "仅一张图片时作为尾帧；两张图片按顺序作为首帧、尾帧" : "图片引用按顺序作为首帧、尾帧" }}
         </div>
         <div class="promptInputHeader">
-          <el-button-group size="small" aria-label="切换原始或优化后提示词">
-            <el-button :icon="IconFileText" :type="!showOptimized ? 'primary' : 'default'" @click="showOptimized = false">原始</el-button>
-            <el-button :icon="IconWand" :type="showOptimized ? 'primary' : 'default'" :disabled="!hasOptimized" @click="showOptimized = true">优化后</el-button>
-          </el-button-group>
+          <el-segmented
+            v-model="showOptimized"
+            :options="[{ label: '原始', value: false }, { label: '优化后', value: true }]"
+            :disabled="!hasOptimized"
+            size="small"
+            aria-label="切换原始或优化后提示词" />
         </div>
         <promptInput v-model="displayPromptModel" v-model:text="displayPrompt" :references="referenceMentions" expandable />
         <div class="promptFooter">
@@ -112,8 +115,8 @@
 
 <script setup lang="ts">
 import { computed, nextTick, onMounted, onScopeDispose, ref, watch } from "vue";
-import { ElButton, ElButtonGroup, ElCard, ElSelect, ElOption, ElOptionGroup, ElLoading, ElDropdown, ElDropdownMenu, ElDropdownItem } from "element-plus";
-import { IconCameraAi, IconSparkles, IconArrowUp, IconPlayerStop, IconTransfer, IconMusic, IconLayersSubtract, IconScissors, IconPhotoScan, IconPlayerSkipBack, IconPlayerSkipForward, IconWand, IconFileText } from "@tabler/icons-vue";
+import { ElButton, ElCard, ElSelect, ElOption, ElOptionGroup, ElLoading, ElDropdown, ElDropdownMenu, ElDropdownItem, ElSegmented } from "element-plus";
+import { IconCameraAi, IconSparkles, IconArrowUp, IconPlayerStop, IconTransfer, IconMusic, IconLayersSubtract, IconScissors, IconPhotoScan, IconPlayerSkipBack, IconPlayerSkipForward, IconWand } from "@tabler/icons-vue";
 import { nodeSkeleton, nodeTools, useNode, z, type NodeMediaModel, type NodeVideoRequest, type NodeHandle } from "@toonflow/nodes-scaffold/runtime";
 import { groupNodeModels } from "@toonflow/node-shared/groupNodeModels";
 import { showNodeError } from "@toonflow/node-shared/showNodeError";
@@ -197,6 +200,10 @@ let modelsRequest: Promise<void> | undefined;
 // ACT: 供应商未声明视频比例范围，沿用界面的通用比例，具体支持范围由供应商校验。
 const ratioOptions = ["16:9", "9:16", "1:1", "4:3", "3:4"];
 const selectedModel = computed(() => models.value.find((item) => JSON.stringify([item.providerId, item.modelId]) === data.value.model));
+const videoResolutionHint = computed(() => {
+  const parts = [data.value.resolution, data.value.duration ? `${data.value.duration}s` : ""].filter(Boolean);
+  return parts.join(" · ");
+});
 const selectedMode = computed(() => selectedModel.value?.mode?.find((item) => JSON.stringify(item) === data.value.mode) as NodeVideoRequest["mode"]);
 const frameMode = computed(() => ["startEndRequired", "endFrameOptional", "startFrameOptional"].includes(String(selectedMode.value)));
 const mediaCounts = computed(() => ({
@@ -521,6 +528,26 @@ nodeTools.register({
   place-items: center;
   min-height: 144px;
   overflow: hidden;
+
+  .resolutionHint {
+    position: absolute;
+    bottom: 8px;
+    left: 50%;
+    transform: translateX(-50%);
+    padding: 2px 8px;
+    border-radius: 4px;
+    background: #000a;
+    color: #fff;
+    font-size: 11px;
+    line-height: 1.6;
+    white-space: nowrap;
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 0.15s;
+    z-index: 1;
+  }
+
+  &:hover .resolutionHint { opacity: 1; }
   border-radius: var(--el-border-radius-base);
 
   .videoEmpty {
