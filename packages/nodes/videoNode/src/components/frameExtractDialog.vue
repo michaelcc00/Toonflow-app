@@ -14,6 +14,7 @@
       <video ref="preview" class="extractPreview" :src="src" controls playsinline preload="metadata" aria-label="抽帧预览" @loadedmetadata="readDuration" @error="duration = 0" />
       <div class="windowSelector">
         <span class="windowLabel">抽帧区间（1 秒）</span>
+        <el-button :icon="IconArrowLeft" circle size="small" :disabled="extracting || !duration || windowStart <= 0" aria-label="前移一秒" @click="stepWindow(-1)" />
         <el-slider
           v-model="windowStart"
           :min="0"
@@ -22,6 +23,7 @@
           :disabled="extracting || !duration"
           aria-label="抽帧区间开始时间"
           @change="extractFrames" />
+        <el-button :icon="IconArrowRight" circle size="small" :disabled="extracting || !duration || windowStart >= maxWindowStart" aria-label="后移一秒" @click="stepWindow(1)" />
         <span class="windowTime">{{ windowStart.toFixed(1) }}s – {{ Math.min(duration, windowStart + 1).toFixed(1) }}s</span>
       </div>
       <div v-if="extracting" class="extractingStatus" role="status">
@@ -55,6 +57,7 @@
 import { nextTick, ref } from "vue";
 import { useNode, useVueFlow } from "@vue-flow/core";
 import { ElButton, ElDialog, ElMessage, ElProgress, ElSlider } from "element-plus";
+import { IconArrowLeft, IconArrowRight } from "@tabler/icons-vue";
 import { useNodeFiles } from "@toonflow/nodes-scaffold/runtime";
 
 const { src, label = "节点视频" } = defineProps<{ src: string; label?: string }>();
@@ -95,6 +98,11 @@ function toggleSelect(index: number) {
   if (next.has(index)) next.delete(index);
   else next.add(index);
   selected.value = next;
+}
+
+function stepWindow(direction: 1 | -1) {
+  windowStart.value = Math.min(maxWindowStart.value, Math.max(0, Math.round((windowStart.value + direction) * 10) / 10));
+  extractFrames();
 }
 
 async function extractFrames() {
