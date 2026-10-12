@@ -30,7 +30,7 @@ function imageOptions(value: unknown, pattern: RegExp) {
 
 export async function listMediaModels(): Promise<MediaModel[]> {
   const installedProviders = await listMediaProviders();
-  const providerConfigs = (u.conf.get("mediaProviderConfigs") ?? {}) as Record<string, Record<string, unknown>>;
+  const providerConfigs = (conf.get("settings", {}) as { mediaProviderConfigs?: Record<string, Record<string, unknown>> }).mediaProviderConfigs ?? {};
   return installedProviders.flatMap(provider => provider.models.flatMap(model => {
     if (model.type !== "image" && model.type !== "video" && model.type !== "audio") return [];
     const builtIn = (mediaProviders as readonly Provider[]).find(item => item.id === provider.id)?.models.find(item => item.id === model.id);
