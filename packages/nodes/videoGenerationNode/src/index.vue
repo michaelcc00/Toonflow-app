@@ -300,8 +300,13 @@ async function startGeneration() {
       controller.signal.throwIfAborted();
       return ai.generateVideo({ ...input, directory }, controller.signal);
     })
-    .then(([result]) => {
+    .then(({ files: [result], optimizedPrompt }) => {
       controller.signal.throwIfAborted();
+      if (optimizedPrompt) {
+        // 供应商返回了本次实际使用的提示词（如 LLM 优化版）：写回输入框，下次直接修改
+        data.value.prompt = optimizedPrompt;
+        data.value.promptModel = optimizedPrompt.split("\n").map((text) => [{ type: "Write", text }]);
+      }
       if (!result) throw new Error("供应商未返回视频");
       outputs.value.video = { dataType: "VIDEO", value: { url: result.path, mimeType: result.mimeType } };
     }))

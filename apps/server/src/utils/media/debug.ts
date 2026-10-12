@@ -90,8 +90,10 @@ export async function runProviderSource(
     if (!method) throw new Error("供应商没有实现此模型的媒体生成方法");
     const prompt = request[model.type === "audio" ? "text" : "prompt"];
     if (typeof prompt !== "string" || !prompt.trim()) throw new Error("请输入提示词");
-    const assets = await method.call(provider, request as unknown as ImageRequest & VideoRequest & AudioRequest);
+    const rawAssets = await method.call(provider, request as unknown as ImageRequest & VideoRequest & AudioRequest);
     signal.throwIfAborted();
+    // 供应商可返回数组或 { assets, optimizedPrompt }
+    const assets = Array.isArray(rawAssets) ? rawAssets : rawAssets.assets;
     if (!Array.isArray(assets) || !assets.length) throw new Error("供应商未返回媒体数组");
     let size = 0;
     const result = assets.map(asset => {
