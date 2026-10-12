@@ -13,6 +13,7 @@
       <el-button :icon="IconMusic" text :disabled="!outputFile || generating || deleting || uploading || actions?.processing" @click.stop="actions?.open('extractAudio')">提取音轨</el-button>
       <el-button :icon="IconLayersSubtract" text :disabled="!outputFile || generating || deleting || uploading || actions?.processing" @click.stop="actions?.open('separate')">分离音视频</el-button>
       <el-button :icon="IconScissors" text :disabled="!outputFile || generating || deleting || uploading || actions?.processing" @click.stop="actions?.open('trim')">截取片段</el-button>
+      <el-button :icon="IconPhotoScan" text :disabled="!outputFile || generating || deleting || uploading" @click.stop="frameExtract?.open()">抽帧</el-button>
       <mediaHistory mediaType="video" :current="outputFile" :disabled="generating || deleting || uploading" @select="outputs.video = { dataType: 'VIDEO', value: $event }" />
       <el-button :icon="IconTransfer" :loading="uploading" :disabled="generating || deleting" text title="替换视频" aria-label="替换视频" @click.stop="fileInput?.click()">替换视频</el-button>
       <input ref="fileInput" type="file" accept="video/*" hidden aria-label="选择替换视频" :disabled="generating || deleting || uploading" @change="replaceOutput" />
@@ -111,6 +112,7 @@
     </template>
   </nodeSkeleton>
   <videoActions ref="actions" :file="outputFile" :src="previewUrl" :disabled="generating || deleting || uploading" />
+  <frameExtractDialog ref="frameExtract" :src="previewUrl" :label="node.data.label" />
 </template>
 
 <script setup lang="ts">
@@ -125,6 +127,7 @@ import { useNodeReferences } from "@toonflow/node-shared/useNodeReferences";
 import promptInput from "@toonflow/node-shared/promptInput";
 import videoPlayer from "@toonflow/node-video/videoPlayer";
 import videoActions from "@toonflow/node-video/videoActions";
+import frameExtractDialog from "@toonflow/node-video/frameExtractDialog";
 import referenceItem from "@toonflow/node-shared/referenceItem";
 import mediaHistory from "@toonflow/node-shared/mediaHistory";
 import generationSettings from "./components/generationSettings.vue";
@@ -161,6 +164,7 @@ let disposed = false;
 const deleting = ref(false);
 const player = ref<InstanceType<typeof videoPlayer>>();
 const actions = ref<InstanceType<typeof videoActions>>();
+const frameExtract = ref<InstanceType<typeof frameExtractDialog>>();
 const videoWidth = ref(0);
 const actualVideoWidth = ref(0);
 const actualVideoHeight = ref(0);
