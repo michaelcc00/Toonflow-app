@@ -50,7 +50,15 @@
         <div v-if="frameMode" class="referenceHint">
           {{ selectedMode === "startFrameOptional" ? "仅一张图片时作为尾帧；两张图片按顺序作为首帧、尾帧" : "图片引用按顺序作为首帧、尾帧" }}
         </div>
-        <promptInput v-model="data.promptModel" v-model:text="data.prompt" :references="referenceMentions" expandable />
+        <div class="promptInputHeader">
+          <el-segmented
+            v-model="showOptimized"
+            :options="[{ label: '原始', value: false }, { label: '优化后', value: true }]"
+            :disabled="!hasOptimized"
+            size="small"
+            aria-label="切换原始或优化后提示词" />
+        </div>
+        <promptInput v-model="displayPromptModel" v-model:text="displayPrompt" :references="referenceMentions" expandable />
         <div class="promptFooter">
           <el-select
             v-model="data.model"
@@ -81,15 +89,14 @@
             :ratios="ratioOptions"
             :model="selectedModel"
             :disabled="generating || deleting || !selectedModel" />
-          <el-tooltip content="生成前先用文本模型优化提示词，确认无误再生成" placement="top">
-            <span class="optimizeToggle">
-              <el-switch
-                v-model="optimizeEnabled"
-                :disabled="generating || deleting || optimizing"
-                aria-label="是否开启提示词优化" />
-              <icon-wand :size="15" aria-hidden="true" />
-            </span>
-          </el-tooltip>
+          <el-button
+            :icon="IconWand"
+            :loading="optimizing"
+            :disabled="generating || deleting || !generationPrompt"
+            aria-label="执行提示词优化"
+            @click="runOptimize().catch((error) => showNodeError(error, '提示词优化失败'))">
+            优化提示词
+          </el-button>
           <el-button
             class="sendButton"
             :icon="generating ? IconPlayerStop : IconArrowUp"
@@ -103,18 +110,11 @@
     </template>
   </nodeSkeleton>
   <videoActions ref="actions" :file="outputFile" :src="previewUrl" :disabled="generating || deleting || uploading" />
-  <optimizeConfirmDialog
-    v-model="optimizeDialog"
-    :original="optimizeOriginal"
-    :optimized="optimizeResult"
-    :images="optimizeImages"
-    @confirm="onOptimizeConfirm"
-    @cancel="onOptimizeCancel" />
 </template>
 
 <script setup lang="ts">
 import { computed, nextTick, onMounted, onScopeDispose, ref, watch } from "vue";
-import { ElButton, ElCard, ElSelect, ElOption, ElOptionGroup, ElLoading, ElDropdown, ElDropdownMenu, ElDropdownItem, ElSwitch, ElTooltip } from "element-plus";
+import { ElButton, ElCard, ElSelect, ElOption, ElOptionGroup, ElLoading, ElDropdown, ElDropdownMenu, ElDropdownItem, ElSegmented } from "element-plus";
 import { IconCameraAi, IconSparkles, IconArrowUp, IconPlayerStop, IconTransfer, IconMusic, IconLayersSubtract, IconScissors, IconPhotoScan, IconPlayerSkipBack, IconPlayerSkipForward, IconWand } from "@tabler/icons-vue";
 import { nodeSkeleton, nodeTools, useNode, z, type NodeMediaModel, type NodeVideoRequest, type NodeHandle } from "@toonflow/nodes-scaffold/runtime";
 import { groupNodeModels } from "@toonflow/node-shared/groupNodeModels";
@@ -127,7 +127,6 @@ import videoActions from "@toonflow/node-video/videoActions";
 import referenceItem from "@toonflow/node-shared/referenceItem";
 import mediaHistory from "@toonflow/node-shared/mediaHistory";
 import generationSettings from "./components/generationSettings.vue";
-import optimizeConfirmDialog from "./components/optimizeConfirmDialog.vue";
 
 defineOptions({
   inheritAttrs: false,
@@ -142,9 +141,11 @@ const { id, node, nodeProps, nodeEvent, outputs, files, ai, updateNodeInternals 
   label: "视频生成",
 });
 type PromptModel = NonNullable<InstanceType<typeof promptInput>["$props"]["modelValue"]>;
-const data = computed(() => node.data as { prompt: string; promptModel: PromptModel; model: string; duration?: number; resolution: string; ratio: string; mode: string; generateAudio: boolean });
+const data = computed(() => node.data as { prompt: string; promptModel: PromptModel; optimizedPrompt: string; optimizedPromptModel: PromptModel; model: string; duration?: number; resolution: string; ratio: string; mode: string; generateAudio: boolean });
 data.value.prompt ??= "";
 data.value.promptModel ??= [];
+data.value.optimizedPrompt ??= "";
+data.value.optimizedPromptModel ??= [];
 data.value.model ??= "";
 data.value.resolution ??= "";
 data.value.mode ??= "";
@@ -161,29 +162,35 @@ const player = ref<InstanceType<typeof videoPlayer>>();
 const actions = ref<InstanceType<typeof videoActions>>();
 const videoWidth = ref(0);
 let generationController: AbortController | undefined;
-const optimizeEnabled = ref(false);
 const optimizing = ref(false);
-const optimizeDialog = ref(false);
-const optimizeOriginal = ref("");
-const optimizeResult = ref("");
-const optimizeImages = ref<{ src?: string; label: string }[]>([]);
-let optimizeResolve: ((prompt: string | undefined) => void) | undefined;
+const showOptimized = ref(false);
+const hasOptimized = computed(() => !!data.value.optimizedPrompt.trim());
+// 输入框显示原始或优化后：切到哪边，生成就用哪边
+const displayPrompt = computed({
+  get: () => showOptimized.value ? data.value.optimizedPrompt : data.value.prompt,
+  set: (value: string) => { if (showOptimized.value) data.value.optimizedPrompt = value; else data.value.prompt = value; },
+});
+const displayPromptModel = computed({
+  get: () => showOptimized.value ? data.value.optimizedPromptModel : data.value.promptModel,
+  set: (value: PromptModel) => { if (showOptimized.value) data.value.optimizedPromptModel = value; else data.value.promptModel = value; },
+});
 
-async function loadPromptOptimizeConfig(): Promise<{ enabled: boolean; providerId: string; modelId: string; language: "zh" | "en"; readMedia: boolean }> {
+async function loadPromptOptimizeConfig(): Promise<{ enabled: boolean; providerId: string; modelId: string; language: "zh" | "en"; readMedia: boolean; prompts: { id: string; content: string }[]; defaultPromptId: string }> {
   // 每次重新读取：用户可能在节点挂载后才去设置里改配置
   const response = await fetch("/api/settings/get", { headers: { "x-toonflow-workspace": "1" } });
-  const result = await response.json() as { code: number; data?: { promptOptimize?: { enabled?: boolean; providerId?: string; modelId?: string; language?: string; readMedia?: boolean } } };
+  const result = await response.json() as { code: number; data?: { promptOptimize?: { enabled?: boolean; providerId?: string; modelId?: string; language?: string; readMedia?: boolean; prompts?: { id?: string; content?: string }[]; defaultPromptId?: string } } };
   if (result.code !== 200) throw new Error("读取提示词优化设置失败");
   const raw = result.data?.promptOptimize ?? {};
-  const config: { enabled: boolean; providerId: string; modelId: string; language: "zh" | "en"; readMedia: boolean } = {
+  const prompts = Array.isArray(raw.prompts) ? raw.prompts.filter(p => p && typeof p.id === "string" && typeof p.content === "string") as { id: string; content: string }[] : [];
+  return {
     enabled: raw.enabled !== false,
     providerId: raw.providerId ?? "",
     modelId: raw.modelId ?? "",
     language: raw.language === "en" ? "en" : "zh",
     readMedia: raw.readMedia !== false,
+    prompts,
+    defaultPromptId: typeof raw.defaultPromptId === "string" ? raw.defaultPromptId : "",
   };
-  optimizeEnabled.value = config.enabled;
-  return config;
 }
 const generationState = useNodeGeneration(outputs, () => generationController?.abort());
 const { generating } = generationState;
@@ -244,14 +251,16 @@ watch([selectedModel, () => data.value.duration], ([choice]) => {
   if (choice.audio !== "optional") data.value.generateAudio = choice.audio === true;
 }, { flush: "sync" });
 const modelGroups = computed(() => groupNodeModels(models.value));
-const generationPrompt = computed(() =>
-  [
+const generationPrompt = computed(() => {
+  // 优化后版本是完整改写，直接用；原始版本拼接文本引用
+  if (showOptimized.value) return data.value.optimizedPrompt.trim();
+  return [
     data.value.prompt.trim(),
     ...refList.value.flatMap((item, index) => (item.dataType === "STRING" && item.value?.trim() ? [`参考 ${index + 1}：\n${item.value.trim()}`] : [])),
   ]
     .filter(Boolean)
-    .join("\n\n")
-);
+    .join("\n\n");
+});
 const outputFile = computed(() => outputs.value.video?.dataType === "VIDEO" ? outputs.value.video.value : undefined);
 const previewUrl = files.useFileUrl(
   outputFile,
@@ -259,9 +268,6 @@ const previewUrl = files.useFileUrl(
 );
 
 onMounted(() => loadModels().catch((error) => showNodeError(error, "模型读取失败")));
-onMounted(() => {
-  loadPromptOptimizeConfig().catch((error) => showNodeError(error, "提示词优化设置读取失败"));
-});
 onScopeDispose(() => {
   disposed = true;
   generationController?.abort();
@@ -309,47 +315,36 @@ function loadModels() {
   return modelsRequest;
 }
 
-function onOptimizeConfirm(prompt: string) {
-  optimizeDialog.value = false;
-  optimizeResolve?.(prompt);
-  optimizeResolve = undefined;
-}
-
-function onOptimizeCancel() {
-  optimizeDialog.value = false;
-  optimizeResolve?.(undefined);
-  optimizeResolve = undefined;
-}
-
-/** 跑提示词优化并弹窗确认；返回确认后的提示词，取消则返回 undefined */
-function runOptimizeConfirm(prompt: string, images: { path: string; mimeType: string }[]): Promise<string | undefined> {
-  return (async () => {
-    const config = await loadPromptOptimizeConfig();
-    if (!config.providerId || !config.modelId) throw new Error("请先在设置 → 提示词优化中选择优化模型");
-    optimizing.value = true;
-    try {
-      const { directory } = await files.getWorkspaceFiles().list();
-      const { optimized } = await ai.optimizePrompt({
-        providerId: config.providerId,
-        modelId: config.modelId,
-        prompt,
-        imagePaths: config.readMedia ? images : [],
-        language: config.language,
-        readMedia: config.readMedia,
-        directory,
-      });
-      optimizeOriginal.value = prompt;
-      optimizeResult.value = optimized;
-      optimizeImages.value = images.map((_, index) => {
-        const mention = referenceMentions.value.find(item => item.value === `{{ref ${index + 1}}}`);
-        return { src: typeof mention?.avatar === "string" ? mention.avatar : undefined, label: `<Picture ${index + 1}>` };
-      });
-      optimizeDialog.value = true;
-      return await new Promise<string | undefined>((resolve) => { optimizeResolve = resolve; });
-    } finally {
-      optimizing.value = false;
-    }
-  })();
+/** 执行提示词优化，结果直接填入输入框并切换到优化后 */
+async function runOptimize() {
+  if (optimizing.value) return;
+  const prompt = data.value.prompt.trim();
+  if (!prompt) throw new Error("请先输入提示词");
+  const config = await loadPromptOptimizeConfig();
+  if (!config.providerId || !config.modelId) throw new Error("请先在设置 → 提示词优化中选择优化模型");
+  const template = config.prompts.find(p => p.id === config.defaultPromptId)?.content
+    ?? config.prompts[0]?.content;
+  if (!template?.trim()) throw new Error("请先在设置 → 提示词优化中添加提示词模板");
+  const images = refList.value.flatMap((item) => item.dataType === "IMAGE" && item.value ? [{ path: item.value.url, mimeType: item.value.mimeType }] : []);
+  optimizing.value = true;
+  try {
+    const { directory } = await files.getWorkspaceFiles().list();
+    const { optimized } = await ai.optimizePrompt({
+      providerId: config.providerId,
+      modelId: config.modelId,
+      prompt,
+      imagePaths: config.readMedia ? images : [],
+      language: config.language,
+      readMedia: config.readMedia,
+      systemTemplate: template,
+      directory,
+    });
+    data.value.optimizedPrompt = optimized;
+    data.value.optimizedPromptModel = optimized.split("\n").map((text) => [{ type: "Write", text }]);
+    showOptimized.value = true;
+  } finally {
+    optimizing.value = false;
+  }
 }
 
 async function startGeneration() {
@@ -358,17 +353,12 @@ async function startGeneration() {
   if (uploading.value) throw new Error("视频正在替换，请等待完成");
   if (deleting.value) throw new Error("节点正在删除");
   if (!choice) throw new Error("请先选择视频模型");
-  if (!generationPrompt.value) throw new Error("请输入生成提示词");
   if (refList.value.some(item => item.value === undefined)) throw new Error("引用节点暂无内容，请先补充引用内容");
   const images = refList.value.flatMap((item) => item.dataType === "IMAGE" && item.value ? [{ path: item.value.url, mimeType: item.value.mimeType }] : []);
   if (choice.mode?.length && !matchingModes.value.length) throw new Error("当前模型没有适合这些参考素材的生成模式，请更换模型或调整引用");
-  // 提示词优化：先跑优化，确认无误再生成
-  let prompt = generationPrompt.value;
-  if (optimizeEnabled.value) {
-    const optimized = await runOptimizeConfirm(prompt, images);
-    if (optimized === undefined) return { status: "cancelled" as const };
-    prompt = optimized;
-  }
+  // 用当前显示的版本（原始 / 优化后）生成
+  const prompt = displayPrompt.value.trim();
+  if (!prompt) throw new Error("请输入生成提示词");
   const workspace = files.getWorkspaceFiles();
   const controller = new AbortController();
   const input: Omit<NodeVideoRequest, "directory"> = {
@@ -573,11 +563,10 @@ nodeTools.register({
       }
     }
 
-    .optimizeToggle {
-      display: inline-flex;
-      align-items: center;
-      gap: 6px;
-      color: var(--el-text-color-secondary);
+    .promptInputHeader {
+      display: flex;
+      justify-content: flex-end;
+      margin-bottom: 6px;
     }
 
     .sendButton {

@@ -11,20 +11,17 @@ export interface PromptOptimizeArgs {
   imagePaths: { path: string; mimeType: string }[];
   language: "zh" | "en";
   readMedia: boolean;
+  /** 提示词模板，可用占位符 {{lang}} {{mediaNote}} {{imageCount}}；不传用内置 */
+  systemTemplate?: string;
   directory?: string;
   signal?: AbortSignal;
 }
 
-function systemPrompt(imageCount: number, language: "zh" | "en", readMedia: boolean): string {
-  const lang = language === "en" ? "English" : "中文";
-  const mediaNote = readMedia && imageCount > 0
-    ? `本次共传入 ${imageCount} 张参考图（<Picture 1>..<Picture ${imageCount}>），已按顺序附在后面。请观察每张图中的主体，在 subject_definitions 中为每个不同的主体建定义。`
-    : "本次没有可读的参考图，只根据用户文字改写；subject_definitions 只写文字中明确提到的主体。";
-  return `You are a professional video-generation prompt optimizer. Rewrite the user's raw prompt into a structured video prompt for a reference-driven video model.
+const builtinTemplate = `You are a professional video-generation prompt optimizer. Rewrite the user's raw prompt into a structured video prompt for a reference-driven video model.
 
-${mediaNote}
+{{mediaNote}}
 
-Output language: ${lang}. Output ONLY the optimized prompt, no explanations, no markdown fences.
+Output language: {{lang}}. Output ONLY the optimized prompt, no explanations, no markdown fences.
 
 Output format (exact, keep the English section headers):
 
@@ -43,11 +40,21 @@ Rules:
 - Preserve ALL dialogue lines verbatim, wrapped as <d>dialogue</d> inside summary. Never invent dialogue.
 - Preserve the user's intent; enrich visual and cinematic detail but do not add new plot elements.
 - <Picture N> always refers to the Nth reference image, 1-based. Never renumber.`;
+
+function systemPrompt(template: string, imageCount: number, language: "zh" | "en", readMedia: boolean): string {
+  const lang = language === "en" ? "English" : "中文";
+  const mediaNote = readMedia && imageCount > 0
+    ? `本次共传入 ${imageCount} 张参考图（<Picture 1>..<Picture ${imageCount}>），已按顺序附在后面。请观察每张图中的主体，在 subject_definitions 中为每个不同的主体建定义。`
+    : "本次没有可读的参考图，只根据用户文字改写；subject_definitions 只写文字中明确提到的主体。";
+  return template
+    .replace(/\{\{lang\}\}/g, lang)
+    .replace(/\{\{mediaNote\}\}/g, mediaNote)
+    .replace(/\{\{imageCount\}\}/g, String(imageCount));
 }
 
 /** 用用户自配的文本模型做提示词优化，返回优化后的完整文本。 */
 export async function optimizePrompt(args: PromptOptimizeArgs): Promise<string> {
-  const { req, providerId, modelId, prompt, imagePaths, language, readMedia, directory, signal } = args;
+  const { req, providerId, modelId, prompt, imagePaths, language, readMedia, systemTemplate, directory, signal } = args;
   if (!prompt.trim()) throw Object.assign(new Error("提示词不能为空"), { status: 400 });
   const configured = getConfiguredModel(providerId, modelId);
   const controller = new AbortController();
@@ -64,7 +71,7 @@ export async function optimizePrompt(args: PromptOptimizeArgs): Promise<string> 
       : [];
     const refs = count ? `\n\nReference images: ${Array.from({ length: count }, (_, i) => `<Picture ${i + 1}>`).join(", ")} (attached below in order).` : "";
     const stream = streamAi(configured, {
-      systemPrompt: systemPrompt(count, language, readMedia),
+      systemPrompt: systemPrompt(systemTemplate || builtinTemplate, count, language, readMedia),
       messages: [{ role: "user", content: `Raw user prompt:\n${prompt}${refs}`, timestamp: Date.now() }],
     }, controller.signal, references);
     let text = "";

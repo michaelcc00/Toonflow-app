@@ -16,12 +16,13 @@ export default Router().post("/", validateFields({
   imagePaths: z.array(imageSchema).max(9).optional(),
   language: z.enum(["zh", "en"]).optional(),
   readMedia: z.boolean().optional(),
+  systemTemplate: z.string().min(1).max(20000).optional(),
   directory: z.string().min(1).max(4096).optional(),
 }), async (req, res) => {
   const body = req.body as {
     providerId: string; modelId: string; prompt: string;
     imagePaths?: { path: string; mimeType: string }[];
-    language?: "zh" | "en"; readMedia?: boolean; directory?: string;
+    language?: "zh" | "en"; readMedia?: boolean; systemTemplate?: string; directory?: string;
   };
   const controller = new AbortController();
   const close = () => controller.abort();
@@ -35,6 +36,7 @@ export default Router().post("/", validateFields({
       imagePaths: body.imagePaths ?? [],
       language: body.language ?? "zh",
       readMedia: body.readMedia ?? true,
+      systemTemplate: body.systemTemplate,
       directory: body.directory,
       signal: controller.signal,
     });

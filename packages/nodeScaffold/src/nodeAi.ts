@@ -186,6 +186,7 @@ export function useNodeAi() {
     imagePaths?: { path: string; mimeType: string }[];
     language?: "zh" | "en";
     readMedia?: boolean;
+    systemTemplate?: string;
     directory?: string;
   }, signal?: AbortSignal) {
     return readResult<{ optimized: string }>(await fetch("/api/ai/prompt/optimize", {

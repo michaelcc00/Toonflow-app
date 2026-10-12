@@ -1,24 +1,10 @@
 <template>
   <div class="promptOptimize">
-    <section class="settingSection" aria-labelledby="promptOptimizeTitle">
-      <div class="settingInfo">
-        <h3 id="promptOptimizeTitle">提示词优化</h3>
-        <p class="description">用你配置的文本模型把提示词改写成结构化的视频提示词（subject_definitions + summary）。视频节点开启后，先优化、确认无误再生成。</p>
-      </div>
+    <section class="settingSection" aria-label="提示词优化设置">
       <el-alert v-if="error" :title="error" type="error" :closable="false" showIcon />
-      <div class="optimizeOptions">
-        <div class="settingHeader">
-          <div class="settingInfo">
-            <h4>启用提示词优化</h4>
-            <p class="description">关闭后视频节点不再提供优化入口。</p>
-          </div>
-          <el-switch :modelValue="config.enabled" :loading="saving" aria-label="启用提示词优化" @change="(value) => save({ enabled: value === true })" />
-        </div>
-        <div class="settingHeader">
-          <div class="settingInfo">
-            <h4>优化模型</h4>
-            <p class="description">使用哪个文本模型做优化，需要支持图片输入才能读取视觉素材。</p>
-          </div>
+      <div class="optimizeRow">
+        <div class="optimizeField">
+          <span class="fieldLabel">模型</span>
           <el-select
             :modelValue="modelKey"
             :loading="loadingModels"
@@ -29,22 +15,40 @@
             <el-option v-for="item in models" :key="item.providerId + '/' + item.modelId" :label="item.providerLabel + ' / ' + item.label" :value="item.providerId + '/' + item.modelId" />
           </el-select>
         </div>
-        <div class="settingHeader">
-          <div class="settingInfo">
-            <h4>优化输出语言</h4>
-          </div>
+        <div class="optimizeField">
+          <span class="fieldLabel">语言</span>
           <el-select :modelValue="config.language" aria-label="优化输出语言" @change="(value) => save({ language: value })">
             <el-option label="中文" value="zh" />
             <el-option label="English" value="en" />
           </el-select>
         </div>
-        <div class="settingHeader">
-          <div class="settingInfo">
-            <h4>优化时读取视觉素材</h4>
-            <p class="description">把参考图发给优化模型，让它按图写主体定义。关闭则只按文字改写。</p>
-          </div>
+        <div class="optimizeField">
+          <span class="fieldLabel">读取素材</span>
           <el-switch :modelValue="config.readMedia" aria-label="优化时读取视觉素材" @change="(value) => save({ readMedia: value === true })" />
         </div>
+      </div>
+      <div class="promptList">
+        <div class="listHeader">
+          <h4>优化提示词</h4>
+          <el-button :icon="IconPlus" aria-label="添加提示词" @click="addPrompt">添加</el-button>
+        </div>
+        <p class="description">可用占位符：&#123;&#123;lang&#125;&#125;（输出语言）、&#123;&#123;mediaNote&#125;&#125;（参考图说明）、&#123;&#123;imageCount&#125;&#125;（参考图数量）。</p>
+        <div v-for="item in config.prompts" :key="item.id" class="promptItem">
+          <div class="promptItemHeader">
+            <el-input v-model="item.name" placeholder="名称" aria-label="提示词名称" @change="savePrompts" />
+            <el-tag v-if="item.id === config.defaultPromptId" type="success">默认</el-tag>
+            <el-button v-else aria-label="设为默认" @click="save({ defaultPromptId: item.id })">设为默认</el-button>
+            <el-button :icon="IconTrash" text type="danger" aria-label="删除提示词" @click="removePrompt(item.id)" />
+          </div>
+          <el-input
+            v-model="item.content"
+            type="textarea"
+            :autosize="{ minRows: 8, maxRows: 16 }"
+            placeholder="提示词内容"
+            aria-label="提示词内容"
+            @change="savePrompts" />
+        </div>
+        <el-empty v-if="!config.prompts.length" description="暂无提示词，点击添加" :imageSize="60" />
       </div>
     </section>
   </div>
@@ -53,7 +57,8 @@
 <script setup lang="ts">
 import { computed, onMounted, ref } from "vue";
 import axios from "axios";
-import { ElAlert, ElMessage, ElOption, ElSelect, ElSwitch } from "element-plus";
+import { ElAlert, ElButton, ElEmpty, ElInput, ElMessage, ElOption, ElSelect, ElSwitch, ElTag } from "element-plus";
+import { IconPlus, IconTrash } from "@tabler/icons-vue";
 import { saveSettings, settings } from "@/stores/settings";
 
 interface AiModelOption {
@@ -63,30 +68,78 @@ interface AiModelOption {
   label: string;
 }
 
+interface PromptTemplate {
+  id: string;
+  name: string;
+  content: string;
+}
+
 interface OptimizeConfig {
-  enabled: boolean;
   providerId: string;
   modelId: string;
   language: "zh" | "en";
   readMedia: boolean;
+  prompts: PromptTemplate[];
+  defaultPromptId: string;
 }
 
-const defaultConfig: OptimizeConfig = { enabled: true, providerId: "", modelId: "", language: "zh", readMedia: true };
+const builtinPrompt = `You are a professional video-generation prompt optimizer. Rewrite the user's raw prompt into a structured video prompt for a reference-driven video model.
+
+{{mediaNote}}
+
+Output language: {{lang}}. Output ONLY the optimized prompt, no explanations, no markdown fences.
+
+Output format (exact, keep the English section headers):
+
+subject_definitions:
+<Subject 1>: <concise visual description>, as shown in <Picture 1>.
+<Subject 2>: <concise visual description>, as shown in <Picture 2>.
+
+summary:
+[reference generation] <one-paragraph video description>
+
+Rules:
+- subject_definitions lists each distinct subject (person, vehicle, key object, scene) once, numbered <Subject 1>, <Subject 2>, ...
+- Every definition ends with "，如<Picture N>所示。" binding it to its reference image; without a reference image, describe from text only and omit the binding.
+- In summary, after first mention refer to subjects with the shorthand (S1), (S2), ...
+- summary starts with the literal tag [reference generation], then one paragraph: scene, subject actions and interactions, camera movement, lighting and atmosphere.
+- Preserve ALL dialogue lines verbatim, wrapped as <d>dialogue</d> inside summary. Never invent dialogue.
+- Preserve the user's intent; enrich visual and cinematic detail but do not add new plot elements.
+- <Picture N> always refers to the Nth reference image, 1-based. Never renumber.`;
+
 const models = ref<AiModelOption[]>([]);
 const loadingModels = ref(false);
 const saving = ref(false);
 const error = ref("");
 
+function defaultConfig(): OptimizeConfig {
+  const id = `builtin-${Date.now()}`;
+  return {
+    providerId: "",
+    modelId: "",
+    language: "zh",
+    readMedia: true,
+    prompts: [{ id, name: "视频提示词优化（内置）", content: builtinPrompt }],
+    defaultPromptId: id,
+  };
+}
+
 const config = computed<OptimizeConfig>(() => {
   const value = settings.value.promptOptimize;
-  if (!value || typeof value !== "object" || Array.isArray(value)) return defaultConfig;
+  if (!value || typeof value !== "object" || Array.isArray(value)) return defaultConfig();
   const raw = value as Partial<OptimizeConfig>;
+  const prompts = Array.isArray(raw.prompts) && raw.prompts.length
+    ? raw.prompts.filter((p): p is PromptTemplate => !!p && typeof p.id === "string" && typeof p.content === "string")
+        .map(p => ({ id: p.id, name: typeof p.name === "string" ? p.name : "未命名", content: p.content }))
+    : defaultConfig().prompts;
+  const defaultPromptId = prompts.some(p => p.id === raw.defaultPromptId) ? raw.defaultPromptId as string : prompts[0]!.id;
   return {
-    enabled: raw.enabled !== false,
     providerId: typeof raw.providerId === "string" ? raw.providerId : "",
     modelId: typeof raw.modelId === "string" ? raw.modelId : "",
     language: raw.language === "en" ? "en" : "zh",
     readMedia: raw.readMedia !== false,
+    prompts,
+    defaultPromptId,
   };
 });
 
@@ -109,10 +162,7 @@ async function save(patch: Partial<OptimizeConfig>) {
   if (saving.value) return;
   saving.value = true;
   try {
-    await saveSettings((current) => {
-      const prev = config.value;
-      return { promptOptimize: { ...prev, ...patch } };
-    });
+    await saveSettings(() => ({ promptOptimize: { ...config.value, ...patch } }));
   } catch (err) {
     ElMessage.error(err instanceof Error ? err.message : "保存失败");
   } finally {
@@ -120,9 +170,28 @@ async function save(patch: Partial<OptimizeConfig>) {
   }
 }
 
+function savePrompts() {
+  save({ prompts: config.value.prompts.map(p => ({ ...p })) });
+}
+
 function onModelChange(key: string) {
   const [providerId, ...rest] = key.split("/");
   save({ providerId, modelId: rest.join("/") });
+}
+
+function addPrompt() {
+  const prompts = [...config.value.prompts, { id: `custom-${Date.now()}`, name: "新提示词", content: "" }];
+  save({ prompts, defaultPromptId: config.value.defaultPromptId });
+}
+
+function removePrompt(id: string) {
+  const prompts = config.value.prompts.filter(p => p.id !== id);
+  if (!prompts.length) {
+    ElMessage.warning("至少保留一条提示词");
+    return;
+  }
+  const defaultPromptId = id === config.value.defaultPromptId ? prompts[0]!.id : config.value.defaultPromptId;
+  save({ prompts, defaultPromptId });
 }
 
 onMounted(loadModels);
@@ -130,11 +199,55 @@ onMounted(loadModels);
 
 <style scoped lang="scss">
 .promptOptimize {
-  .optimizeOptions {
+  .optimizeRow {
     display: flex;
-    flex-direction: column;
-    gap: 4px;
-    margin-top: 12px;
+    gap: 16px;
+    align-items: flex-end;
+    margin-bottom: 20px;
+    .optimizeField {
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+      min-width: 0;
+      &:first-child {
+        flex: 2;
+      }
+      &:nth-child(2) {
+        flex: 1;
+      }
+      .fieldLabel {
+        font-size: 13px;
+        color: var(--el-text-color-secondary);
+      }
+    }
+  }
+  .promptList {
+    .listHeader {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 8px;
+      h4 {
+        margin: 0;
+      }
+    }
+    .description {
+      font-size: 12px;
+      color: var(--el-text-color-secondary);
+      margin: 0 0 12px;
+    }
+    .promptItem {
+      border: 1px solid var(--el-border-color);
+      border-radius: 8px;
+      padding: 12px;
+      margin-bottom: 12px;
+      .promptItemHeader {
+        display: flex;
+        gap: 8px;
+        align-items: center;
+        margin-bottom: 8px;
+      }
+    }
   }
 }
 </style>
