@@ -42,7 +42,7 @@
       </div>
       <div v-if="pixelResolution" class="resolutionHint" aria-hidden="true">{{ pixelResolution }}</div>
     </div>
-    <template #bottom>
+    <template v-if="!isMarkMode" #bottom>
       <div v-if="lightingVisible" ref="lightingTarget" />
       <div v-else-if="multiAngleVisible" ref="multiAngleTarget" />
       <el-card v-else class="promptCard" shadow="never" :bodyStyle="{ padding: '14px 16px 12px' }">

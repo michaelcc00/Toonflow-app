@@ -153,7 +153,7 @@ async function extractFrames() {
 
 async function confirm() {
   if (!selected.value.size || creating.value) return;
-  if (!nodeTypes?.value?.["remote-imageNode"]) return void ElMessage.error("请先启用图片节点插件");
+  if (!nodeTypes?.value?.["remote-imageGenerationNode"]) return void ElMessage.error("请先启用 AI 图片节点插件");
   creating.value = true;
   const indices = [...selected.value].sort((a, b) => a - b);
   try {
@@ -174,7 +174,7 @@ async function confirm() {
       }
       addNodes({
         id,
-        type: "remote-imageNode",
+        type: "remote-imageGenerationNode",
         position: { x, y },
         data: {
           label: `${node.data.label || label} · ${frame.time.toFixed(2)}s`,
