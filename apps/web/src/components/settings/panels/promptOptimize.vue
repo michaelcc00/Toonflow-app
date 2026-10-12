@@ -30,48 +30,34 @@
       <div class="promptList">
         <div class="listHeader">
           <h4>优化提示词</h4>
-          <el-button :icon="IconPlus" aria-label="添加提示词" @click="openDialog()">添加</el-button>
+          <el-button :icon="IconPlus" aria-label="添加提示词" @click="addPrompt">添加</el-button>
         </div>
-        <div v-for="item in config.prompts" :key="item.id" class="promptRow" @click="openDialog(item)">
-          <span class="promptName">{{ item.name || "未命名" }}</span>
-          <el-tag v-if="item.id === config.defaultPromptId" type="success" size="small">默认</el-tag>
-          <span class="promptActions" @click.stop>
-            <el-button v-if="item.id !== config.defaultPromptId" size="small" aria-label="设为默认" @click="save({ defaultPromptId: item.id })">设为默认</el-button>
-            <el-button :icon="IconTrash" size="small" text type="danger" aria-label="删除提示词" @click="removePrompt(item.id)" />
-          </span>
+        <p class="description">可用占位符：&#123;&#123;lang&#125;&#125;（输出语言）、&#123;&#123;mediaNote&#125;&#125;（参考图说明）、&#123;&#123;imageCount&#125;&#125;（参考图数量）。</p>
+        <div v-for="item in config.prompts" :key="item.id" class="promptItem">
+          <div class="promptItemHeader">
+            <el-input v-model="item.name" placeholder="名称" aria-label="提示词名称" @change="savePrompts" />
+            <el-tag v-if="item.id === config.defaultPromptId" type="success">默认</el-tag>
+            <el-button v-else aria-label="设为默认" @click="save({ defaultPromptId: item.id })">设为默认</el-button>
+            <el-button :icon="IconTrash" text type="danger" aria-label="删除提示词" @click="removePrompt(item.id)" />
+          </div>
+          <el-input
+            v-model="item.content"
+            type="textarea"
+            :autosize="{ minRows: 8, maxRows: 16 }"
+            placeholder="提示词内容"
+            aria-label="提示词内容"
+            @change="savePrompts" />
         </div>
         <el-empty v-if="!config.prompts.length" description="暂无提示词，点击添加" :imageSize="60" />
       </div>
     </section>
-    <el-dialog
-      v-model="dialogVisible"
-      :title="editingId ? '编辑提示词' : '添加提示词'"
-      width="min(720px, calc(100vw - 32px))"
-      alignCenter
-      appendToBody
-      :closeOnClickModal="false">
-      <div class="promptDialog">
-        <el-input v-model="editingName" placeholder="名称" aria-label="提示词名称" />
-        <p class="description">可用占位符：&#123;&#123;lang&#125;&#125;（输出语言）、&#123;&#123;mediaNote&#125;&#125;（参考图说明）、&#123;&#123;imageCount&#125;&#125;（参考图数量）。</p>
-        <el-input
-          v-model="editingContent"
-          type="textarea"
-          :autosize="{ minRows: 10, maxRows: 18 }"
-          placeholder="提示词内容"
-          aria-label="提示词内容" />
-      </div>
-      <template #footer>
-        <el-button @click="dialogVisible = false">取消</el-button>
-        <el-button type="primary" :disabled="!editingName.trim() || !editingContent.trim()" @click="confirmDialog">确定</el-button>
-      </template>
-    </el-dialog>
   </div>
 </template>
 
 <script setup lang="ts">
 import { computed, onMounted, ref } from "vue";
 import axios from "axios";
-import { ElAlert, ElButton, ElDialog, ElEmpty, ElInput, ElMessage, ElOption, ElSelect, ElSwitch, ElTag } from "element-plus";
+import { ElAlert, ElButton, ElEmpty, ElInput, ElMessage, ElOption, ElSelect, ElSwitch, ElTag } from "element-plus";
 import { IconPlus, IconTrash } from "@tabler/icons-vue";
 import { saveSettings, settings } from "@/stores/settings";
 
@@ -97,38 +83,12 @@ interface OptimizeConfig {
   defaultPromptId: string;
 }
 
-const builtinPrompt = `You are a professional video-generation prompt optimizer. Rewrite the user's raw prompt into a structured video prompt for a reference-driven video model.
-
-{{mediaNote}}
-
-Output language: {{lang}}. Output ONLY the optimized prompt, no explanations, no markdown fences.
-
-Output format (exact, keep the English section headers):
-
-subject_definitions:
-<Subject 1>: <concise visual description>, as shown in <Picture 1>.
-<Subject 2>: <concise visual description>, as shown in <Picture 2>.
-
-summary:
-[reference generation] <one-paragraph video description>
-
-Rules:
-- subject_definitions lists each distinct subject (person, vehicle, key object, scene) once, numbered <Subject 1>, <Subject 2>, ...
-- Every definition ends with "，如<Picture N>所示。" binding it to its reference image; without a reference image, describe from text only and omit the binding.
-- In summary, after first mention refer to subjects with the shorthand (S1), (S2), ...
-- summary starts with the literal tag [reference generation], then one paragraph: scene, subject actions and interactions, camera movement, lighting and atmosphere.
-- Preserve ALL dialogue lines verbatim, wrapped as <d>dialogue</d> inside summary. Never invent dialogue.
-- Preserve the user's intent; enrich visual and cinematic detail but do not add new plot elements.
-- <Picture N> always refers to the Nth reference image, 1-based. Never renumber.`;
+const builtinPrompt = `You are a professional prompt writer for the open-source MiniMax H3 audiovisual model. Return only the final production-ready prompt without explanations, markdown fences, filenames, or invented media. Preserve the user's intent and every supplied dialogue, lyric, and visible-text word verbatim; do not invent dialogue or lyrics that were not provided. This is a video-generation prompt, not image captioning or visual reverse-prompting. Reference images are already passed into model conditioning, so identify each visual subject only with the minimum distinctive cues needed to disambiguate it: usually gender or subject type, main clothing, main hairstyle, and scene. Do not describe facial features, lighting, pose, background objects, or composition exhaustively unless they are essential to the requested motion or must change over time. Spend most words on what happens after the reference frame: causally connected actions, reactions, story progression, timing, performance, camera behavior, and audio-visual synchronization. Develop the user's idea into concrete visible beats that fit the duration: establish the situation, let the central action evolve through meaningful intermediate changes, add a restrained climax or reveal when appropriate, and finish on a clear visual result rather than an abrupt stop. Do not introduce unrelated characters, props, locations, conflicts, or plot twists. Avoid repeating the same static trait across sections, avoid decorative adjectives, and never turn quality requirements into a long negative-prompt checklist. Use professional but executable cinematography with dynamic video direction by default. Unless the user explicitly requests a static pose, locked-off camera, minimal movement, or a specific fixed composition, do not let the subject remain nearly motionless after the opening frame. Build visible motion in successive phases with clear variation and continuity: changes in body weight, posture, orientation, gesture, interaction, expression, spatial position, or object state. Avoid one gesture repeated mechanically throughout the clip. For music, singing, dance, performance, fashion, or other rhythmic scenes, let the body express phrase changes through varied natural gestures and coordinated torso, shoulder, head, hand, and footwork where framing permits; align movement energy and camera emphasis with broad musical progression without fabricating unheard exact beats. Treat the reference image as a starting anchor, not the main subject of the description: spend only enough text to identify it, then prioritize motion design, performance evolution, kinetic atmosphere, and a visually active ending. For each shot, integrate the useful framing or shot scale, subject blocking, and camera path into the action. When motion benefits the scene, choose a motivated Push In, Pull Out, Pan, Tilt, Truck, Pedestal, Arc Shot, Tracking Shot, or controlled Zoom, and specify subtle/large amplitude and slow/fast speed only when meaningful. Let camera movement reveal information, follow motion, emphasize a transformation, or land on the final state; do not stack random camera terms or use constant movement without purpose. Vary composition and visual emphasis over time so the video feels directed rather than static, while preserving spatial continuity, screen direction, subject identity, and reference constraints. Expand into continuous actions, camera choreography, synchronized audible events, ambience, and music with enough detail to guide generation effectively. Prefer a well-designed continuous shot when it can express the event clearly, but allow a small number of motivated cuts when they materially improve narrative clarity or reveal new visual information. Do not create labels outside the supplied label list, renumber labels, or replace labels with filenames. Task=I2VA; {{mediaNote}} All media labels must use angle brackets exactly, for example <Picture 1>, <Video 1>, <Audio 1>. No concrete keyframe role was supplied by the node; do not invent one. Audio mode is automatic generation: do not claim any uploaded audio is copied into the final output. Return exactly these three sections in order: integrated_multimodal_description, overall_soundscape, non_diegetic_music. Formatting is strict: every section heading must occupy its own line; put a newline immediately after the colon, write that section's content on the following line, and put one blank line between sections. Never place a heading and its content on the same line. Build a complete audiovisual progression rather than merely paraphrasing the user's sentence. Use [Shot 1] for the opening and timestamps only for motivated real later cuts. For I2VA, anchor the supplied picture at 0.00s and develop forward. Give the main description enough detail to establish the opening composition, action onset, intermediate development, camera evolution, and a visually resolved ending within the supplied duration. Official dialogue formatting is mandatory in every task and is independent of the selected narration language. Put every user-supplied spoken line or lyric inside exactly one <d>[Language]...</d> block, using the dialogue's actual language name in English. In particular, Chinese speech must use the exact form <d>[Chinese]中文原文</d>; never write Chinese dialogue only inside quotation marks, and never omit [Chinese]. Keep the speaker description, stable speaker ID such as (S1), speaking action, and delivery outside the <d> block; inside it preserve only the user's exact words and punctuation without translation or rewriting. The output-language setting controls narration only: an English prompt must still retain supplied Chinese dialogue as <d>[Chinese]...</d>. Placement is as mandatory as formatting: every <d> block must be embedded inside integrated_multimodal_description at the exact chronological moment when the speaker speaks or sings, immediately after that speaker's speaking/singing action and delivery description. Never collect dialogue into a list, appendix, footer, or separate paragraph after the official sections. Never place a <d> block in overall_soundscape or non_diegetic_music. The final section is always non_diegetic_music, and absolutely no text or <d> block may follow that section's content. For multiple supplied lines, preserve their original order and place each line at its corresponding point in the shot timeline, with intervening actions and pauses described between lines when the user's request implies them. Before returning, verify that every supplied line appears exactly once inside the main shot timeline and nowhere else. Do not wrap paraphrased soundscape descriptions, ambient sounds, or dialogue that the user did not explicitly supply in <d> tags. Subject shorthand formatting is mandatory and globally consistent. If a stable short subject ID is used, it must always be written with parentheses as (S1), (S2), ... through (S20). Never output a bare S1, S2, or any other unparenthesized S-number in narration, shot descriptions, actions, dialogue attribution, or sound descriptions. <Subject N> definitions remain unchanged; (S1) is only the shorthand used to refer back to a defined subject. Before returning, scan the complete result and replace every standalone bare S1-S20 with its exact parenthesized form. Audio items are label-only references; never claim you listened to them. Before returning, silently check that every required section is present in the correct order, every used label exists, no filename appears, no audio content was fabricated, all timing fits the target duration, and the audio relationship matches the supplied mode. Output language is {{lang}}. If {{lang}} is "中文", follow this rule: 输出语言强制为中文：所有自然语言说明、主体描述、摘要、镜头描述、声音说明和音乐说明必须使用简体中文，不得输出英文句子。只有官方固定字段名 integrated_multimodal_description、overall_soundscape、non_diegetic_music，媒体与主体标签、[Shot N]保留英文。返回前必须检查并将其他英文自然语言全部改写成中文。 If {{lang}} is "English", follow this rule: Output all natural-language content in English. Keep supplied dialogue, lyrics, and visible text in their original language.`;
 
 const models = ref<AiModelOption[]>([]);
 const loadingModels = ref(false);
 const saving = ref(false);
 const error = ref("");
-const dialogVisible = ref(false);
-const editingId = ref("");
-const editingName = ref("");
-const editingContent = ref("");
 
 function defaultConfig(): OptimizeConfig {
   const id = `builtin-${Date.now()}`;
@@ -188,33 +148,18 @@ async function save(patch: Partial<OptimizeConfig>) {
   }
 }
 
+function savePrompts() {
+  save({ prompts: config.value.prompts.map(p => ({ ...p })) });
+}
+
 function onModelChange(key: string) {
   const [providerId, ...rest] = key.split("/");
   save({ providerId, modelId: rest.join("/") });
 }
 
-function openDialog(item?: PromptTemplate) {
-  editingId.value = item?.id ?? "";
-  editingName.value = item?.name ?? "";
-  editingContent.value = item?.content ?? "";
-  dialogVisible.value = true;
-}
-
-function confirmDialog() {
-  const name = editingName.value.trim();
-  const content = editingContent.value.trim();
-  if (!name || !content) return;
-  let prompts: PromptTemplate[];
-  let defaultPromptId = config.value.defaultPromptId;
-  if (editingId.value) {
-    prompts = config.value.prompts.map(p => p.id === editingId.value ? { ...p, name, content } : p);
-  } else {
-    const id = `custom-${Date.now()}`;
-    prompts = [...config.value.prompts, { id, name, content }];
-    if (!prompts.some(p => p.id === defaultPromptId)) defaultPromptId = id;
-  }
-  dialogVisible.value = false;
-  save({ prompts, defaultPromptId });
+function addPrompt() {
+  const prompts = [...config.value.prompts, { id: `custom-${Date.now()}`, name: "新提示词", content: "" }];
+  save({ prompts, defaultPromptId: config.value.defaultPromptId });
 }
 
 function removePrompt(id: string) {
@@ -264,40 +209,22 @@ onMounted(loadModels);
         margin: 0;
       }
     }
-    .promptRow {
-      display: flex;
-      align-items: center;
-      gap: 8px;
-      padding: 10px 12px;
-      border: 1px solid var(--el-border-color);
-      border-radius: 8px;
-      margin-bottom: 8px;
-      cursor: pointer;
-      &:hover {
-        border-color: var(--el-color-primary);
-      }
-      .promptName {
-        flex: 1;
-        min-width: 0;
-        overflow: hidden;
-        text-overflow: ellipsis;
-        white-space: nowrap;
-      }
-      .promptActions {
-        display: flex;
-        gap: 4px;
-        align-items: center;
-      }
-    }
-  }
-  .promptDialog {
-    display: flex;
-    flex-direction: column;
-    gap: 8px;
     .description {
       font-size: 12px;
       color: var(--el-text-color-secondary);
-      margin: 0;
+      margin: 0 0 12px;
+    }
+    .promptItem {
+      border: 1px solid var(--el-border-color);
+      border-radius: 8px;
+      padding: 12px;
+      margin-bottom: 12px;
+      .promptItemHeader {
+        display: flex;
+        gap: 8px;
+        align-items: center;
+        margin-bottom: 8px;
+      }
     }
   }
 }
