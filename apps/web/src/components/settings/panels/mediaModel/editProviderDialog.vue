@@ -12,7 +12,7 @@
     @closed="formApi = undefined">
     <div class="providerEditor">
       <messageMarkdown v-if="provider?.readme" class="providerReadme" :content="provider.readme" />
-      <form-create v-model="formValues" v-model:api="formApi" :rule="formRules" :option="formOptions" />
+      <form-create :key="provider?.id ?? 'none'" v-model="formValues" v-model:api="formApi" :rule="formRules" :option="formOptions" />
       <div class="modelHeader">
         <h4>自定义参数</h4>
         <el-button :icon="IconPlus" size="small" :disabled="saving" @click="editParam()">添加</el-button>
@@ -171,7 +171,7 @@ const modeLabels: Record<string, string> = {
   imageReference: "图片参考", videoReference: "视频参考", audioReference: "音频参考",
 };
 
-watch(visible, isVisible => {
+watch([visible, () => provider?.id], ([isVisible]) => {
   if (!isVisible) return;
   formError.value = "";
   modelEditorVisible.value = false;
