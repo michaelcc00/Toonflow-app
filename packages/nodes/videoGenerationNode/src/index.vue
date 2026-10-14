@@ -609,11 +609,6 @@ nodeTools.register({
       font-size: 14px;
     }
   }
-}
-
-@keyframes spin {
-  to { transform: rotate(360deg); }
-}
 
   .videoEmpty {
     display: grid;
@@ -671,5 +666,9 @@ nodeTools.register({
       --el-button-hover-text-color: var(--el-bg-color);
     }
   }
+}
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
 }
 </style>
