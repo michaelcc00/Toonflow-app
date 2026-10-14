@@ -4,7 +4,7 @@ import type { NodeData } from "@toonflow/nodes-scaffold/connection";
 import { useNodeEvent } from "@toonflow/nodes-scaffold/nodeEvent";
 import type { NodeInputValue } from "@toonflow/nodes-scaffold/values";
 
-export function useNodeReferences(handleId = "in") {
+export function useNodeReferences(handleId = "in", options?: { goohaiLabels?: boolean }) {
   const { id, node } = useNode<NodeData & { referenceOrder?: Record<string, string[]> }>();
   const { removeEdges } = useVueFlow();
   const inputValues = ref<NodeInputValue[]>([]);
@@ -18,17 +18,25 @@ export function useNodeReferences(handleId = "in") {
       node.data.referenceOrder = { ...node.data.referenceOrder, [handleId]: values.map(referenceKey) };
     },
   });
-  const referenceMentions = computed(() => refList.value.flatMap((item, index) =>
-    typeof item.dataType === "string" && ["IMAGE", "VIDEO", "AUDIO", "STRING"].includes(item.dataType)
-      ? [{
-          id: referenceKey(item),
-          name: `参考 ${index + 1}`,
-          value: `{{ref ${index + 1}}}`,
-          avatar: previews.value.get(referenceKey(item)) || undefined,
-          mediaType: item.dataType,
-        }]
-      : []
-  ));
+  const referenceMentions = computed(() => {
+    // Goohai 式标签：按媒体类型独立编号（<Picture N>/<Video N>/<Audio N>）
+    const counters: Record<string, number> = {};
+    return refList.value.flatMap((item, index) => {
+      if (typeof item.dataType !== "string" || !["IMAGE", "VIDEO", "AUDIO", "STRING"].includes(item.dataType)) return [];
+      const base = {
+        id: referenceKey(item),
+        avatar: previews.value.get(referenceKey(item)) || undefined,
+        mediaType: item.dataType,
+      };
+      if (options?.goohaiLabels && item.dataType !== "STRING") {
+        counters[item.dataType] = (counters[item.dataType] ?? 0) + 1;
+        const n = counters[item.dataType]!;
+        const label = item.dataType === "IMAGE" ? `<Picture ${n}>` : item.dataType === "VIDEO" ? `<Video ${n}>` : `<Audio ${n}>`;
+        return [{ ...base, name: label, value: label }];
+      }
+      return [{ ...base, name: `参考 ${index + 1}`, value: `{{ref ${index + 1}}}` }];
+    });
+  });
 
   useNodeEvent().on(`input:${handleId}`, (values) => {
     inputValues.value = values;
