@@ -351,7 +351,7 @@ async function runOptimize() {
       imagePaths: config.readMedia ? images : [],
       language: config.language,
       readMedia: config.readMedia,
-      systemTemplate: template.content,
+      systemTemplate: template.content?.trim() ? template.content : undefined,
       templateId: template.id,
       task: "REF2VA",
       duration: data.value.duration ?? 5,
