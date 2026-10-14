@@ -2,11 +2,12 @@
   <el-card v-if="visible" class="assetLibrary" shadow="never" :bodyStyle="{ padding: '8px' }" role="region" aria-label="素材库" @dblclick.stop>
     <div class="libraryToolbar">
       <el-input v-model="searchQuery" class="searchInput" :prefixIcon="IconSearch" placeholder="搜索素材" aria-label="搜索素材" clearable @keydown.esc.stop="searchQuery = ''" />
+      <el-button class="toolbarButton" text :icon="IconDownload" title="批量下载选中" aria-label="批量下载选中" :disabled="!checkedFiles.length" @click="batchDownload" />
       <el-button class="toolbarButton" text :icon="IconFolderPlus" title="新建文件夹" aria-label="新建文件夹" :disabled="newFolderParent !== undefined" @click="startFolder" />
       <el-button class="toolbarButton" text :icon="IconX" title="关闭素材库" aria-label="关闭素材库" @click="visible = false" />
     </div>
     <el-scrollbar class="libraryScroll" maxHeight="min(440px, calc(100dvh - 198px))">
-      <el-tree ref="assetTree" class="assetTree" :data="displayEntries" nodeKey="path" :props="{ label: 'name' }" :currentNodeKey="folder === '.' ? undefined : folder" :filterNodeMethod="filterEntry" defaultExpandAll highlightCurrent emptyText="" @nodeClick="selectFolder">
+      <el-tree ref="assetTree" class="assetTree" :data="displayEntries" nodeKey="path" :props="{ label: 'name' }" :currentNodeKey="folder === '.' ? undefined : folder" :filterNodeMethod="filterEntry" defaultExpandAll highlightCurrent showCheckbox emptyText="" @nodeClick="selectFolder" @check="onCheck">
         <template #default="{ data }">
           <div class="assetEntry" :title="data.name" :draggable="data.type === 'file'" @dragstart.stop="startAssetDrag($event, data)" @dblclick.stop="openPreview(data)" @contextmenu="openItemMenu($event, data)">
             <icon-folder-filled v-if="data.type === 'directory'" class="folderIcon" :size="30" />
@@ -88,7 +89,7 @@
 import { computed, nextTick, onBeforeUnmount, ref, watch } from "vue";
 import axios from "axios";
 import { ElMessage, ElTree, type InputInstance, type TreeNodeData } from "element-plus";
-import { IconDots, IconEye, IconFile, IconFolderFilled, IconFolderPlus, IconMusic, IconPhoto, IconSearch, IconVideo, IconX } from "@tabler/icons-vue";
+import { IconDots, IconDownload, IconEye, IconFile, IconFolderFilled, IconFolderPlus, IconMusic, IconPhoto, IconSearch, IconVideo, IconX } from "@tabler/icons-vue";
 import type { NodeOutput } from "@toonflow/nodes-scaffold/values";
 import { startAssetDrag } from "../canvasDrop";
 import useWorkspaceFiles from "@/lib/workspaceFiles";
@@ -118,6 +119,7 @@ const folderSaving = ref(false);
 const assetMenuRef = ref<InstanceType<typeof assetMenu>>();
 const previewAsset = ref<{ name: string; url: string; kind: "image" | "audio" | "video" }>();
 const previewError = ref("");
+const checkedKeys = ref<string[]>([]);
 let loadRequest = 0;
 onBeforeUnmount(() => { loadRequest++; });
 
@@ -130,6 +132,41 @@ function mediaKind(entry: AssetEntry) {
   if (/\.(avif|apng|bmp|gif|ico|jpe?g|png|svg|webp)$/i.test(entry.name)) return "image";
   if (/\.(mp3|wav|ogg|opus|flac|m4a|aac)$/i.test(entry.name)) return "audio";
   if (/\.(mp4|m4v|webm|mov|mkv|avi|ogv)$/i.test(entry.name)) return "video";
+}
+
+function onCheck() {
+  const keys = assetTree.value?.getCheckedKeys(false) as string[] | undefined;
+  checkedKeys.value = (keys ?? []).filter(key => !key.endsWith("/:newFolder"));
+}
+
+/** 选中的文件（排除文件夹） */
+const checkedFiles = computed(() => {
+  const keys = new Set(checkedKeys.value);
+  const result: AssetEntry[] = [];
+  function walk(items: AssetEntry[]) {
+    for (const item of items) {
+      if (item.type === "file" && keys.has(item.path)) result.push(item);
+      if (item.children) walk(item.children);
+    }
+  }
+  walk(entries.value);
+  return result;
+});
+
+async function batchDownload() {
+  const files = checkedFiles.value;
+  if (!files.length) return;
+  ElMessage.info(`开始下载 ${files.length} 个文件`);
+  for (const file of files) {
+    const a = document.createElement("a");
+    a.href = assetUrl(file.path);
+    a.download = file.name;
+    document.body.appendChild(a);
+    a.click();
+    document.body.removeChild(a);
+    // 避免浏览器拦截连续下载
+    await new Promise(resolve => setTimeout(resolve, 300));
+  }
 }
 
 function openPreview(entry: AssetEntry) {
