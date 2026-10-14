@@ -364,7 +364,8 @@ export function extractExplicitDialogues(prompt: string): [string, string][] {
   ];
   for (const pattern of patterns) {
     for (const match of source.matchAll(pattern)) {
-      const value = match[1].trim().replace(/^[“”‘’"']+|[“”‘’"']+$/g, "").trim();
+      // 剥掉首尾的引号/书名号/花括号；空花括号 {} 剥完变空字符串，会被下面的 !value 过滤掉
+      const value = match[1].trim().replace(/^[“”‘’"'{}]+|[“”‘’"'{}]+$/g, "").trim();
       const existing = new Set(candidates.map(item => item[0]));
       if (!value || existing.has(value) || [...existing].some(item => value.includes(item) || item.includes(value))) continue;
       const language = /[\u3400-\u9fff]/.test(value) ? "Chinese" : "English";

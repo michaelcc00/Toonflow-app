@@ -259,7 +259,8 @@ watch([selectedModel, matchingModes, () => data.value.mode], ([choice, matches])
 watch([selectedModel, () => data.value.duration], ([choice]) => {
   if (!choice) return;
   const durations = getDurations(choice);
-  if (!durations.includes(data.value.duration!)) data.value.duration = durations[0];
+  // 只在非正数时重置；允许手动输入模型列表外的值（用于提示词优化等场景）
+  if (!(data.value.duration! > 0)) data.value.duration = durations[0];
   const resolutions = getResolutions(choice, data.value.duration);
   if (!resolutions.includes(data.value.resolution)) data.value.resolution = resolutions[0] ?? "";
   if (!ratioOptions.includes(data.value.ratio)) data.value.ratio = "9:16";
