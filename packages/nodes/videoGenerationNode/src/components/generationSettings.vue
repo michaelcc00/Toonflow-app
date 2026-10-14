@@ -19,7 +19,14 @@
             <template #suffix>秒</template>
           </el-input>
           <div class="durationPresets">
-            <el-button v-for="item in durations" :key="item" size="small" text :disabled="disabled" :type="duration === item ? 'primary' : undefined" @click="duration = item">{{ item }}秒</el-button>
+            <button
+              v-for="item in durations"
+              :key="item"
+              type="button"
+              class="presetButton"
+              :class="{ active: duration === item }"
+              :disabled="disabled"
+              @click="duration = item">{{ item }}秒</button>
           </div>
         </div>
         <div v-if="resolutions.length" class="outputField">
@@ -129,8 +136,32 @@ function ratioStyle(value: string) {
       .durationPresets {
         display: flex;
         flex-wrap: wrap;
-        gap: 4px;
-        margin-top: 6px;
+        gap: 6px;
+        margin-top: 8px;
+        .presetButton {
+          padding: 4px 12px;
+          border: 1px solid var(--el-border-color);
+          border-radius: 12px;
+          background: var(--el-fill-color-light);
+          color: var(--el-text-color-secondary);
+          font-size: 12px;
+          line-height: 1.5;
+          cursor: pointer;
+          transition: all 0.15s;
+          &:hover:not(:disabled) {
+            border-color: var(--el-color-primary);
+            color: var(--el-color-primary);
+          }
+          &.active {
+            border-color: var(--el-color-primary);
+            background: var(--el-color-primary-light-9);
+            color: var(--el-color-primary);
+          }
+          &:disabled {
+            cursor: not-allowed;
+            opacity: 0.6;
+          }
+        }
       }
     }
   }
