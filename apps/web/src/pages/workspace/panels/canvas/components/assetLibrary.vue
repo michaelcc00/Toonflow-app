@@ -98,6 +98,16 @@ import assetMenu from "./assetMenu.vue";
 type AssetEntry = { name: string; path: string; type: "file" | "directory"; children?: AssetEntry[]; draft?: boolean };
 type AssetOutput = { label: string; output: NodeOutput };
 
+declare global {
+  interface Window {
+    showDirectoryPicker?: () => Promise<{
+      getFileHandle: (name: string, options?: { create?: boolean }) => Promise<{
+        createWritable: () => Promise<{ write: (data: Blob) => Promise<void>; close: () => Promise<void> }>;
+      }>;
+    }>;
+  }
+}
+
 const props = defineProps<{ directory?: string }>();
 const visible = defineModel<boolean>({ default: false });
 const saveVisible = ref(false);
@@ -156,6 +166,32 @@ const checkedFiles = computed(() => {
 async function batchDownload() {
   const files = checkedFiles.value;
   if (!files.length) return;
+
+  // 桌面端/现代浏览器：弹出目录选择框，批量保存到指定目录
+  if (typeof window.showDirectoryPicker === "function") {
+    try {
+      const dirHandle = await window.showDirectoryPicker();
+      ElMessage.info(`开始下载 ${files.length} 个文件`);
+      for (const file of files) {
+        const res = await fetch(assetUrl(file.path));
+        if (!res.ok) throw new Error(`下载失败：${file.name}`);
+        const blob = await res.blob();
+        const fileHandle = await dirHandle.getFileHandle(file.name, { create: true });
+        const writable = await fileHandle.createWritable();
+        await writable.write(blob);
+        await writable.close();
+      }
+      ElMessage.success(`已下载 ${files.length} 个文件`);
+      return;
+    } catch (error) {
+      // 用户取消选择则静默返回
+      if (error instanceof Error && error.name === "AbortError") return;
+      showError(error);
+      return;
+    }
+  }
+
+  // 降级：浏览器默认下载行为
   ElMessage.info(`开始下载 ${files.length} 个文件`);
   for (const file of files) {
     const a = document.createElement("a");
@@ -164,7 +200,6 @@ async function batchDownload() {
     document.body.appendChild(a);
     a.click();
     document.body.removeChild(a);
-    // 避免浏览器拦截连续下载
     await new Promise(resolve => setTimeout(resolve, 300));
   }
 }
