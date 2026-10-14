@@ -16,13 +16,18 @@ export default Router().post("/", validateFields({
   imagePaths: z.array(imageSchema).max(9).optional(),
   language: z.enum(["zh", "en"]).optional(),
   readMedia: z.boolean().optional(),
-  systemTemplate: z.string().min(1).max(100000).optional(),
+  systemTemplate: z.string().min(1).max(20000).optional(),
+  templateId: z.string().min(1).max(128).optional(),
+  task: z.enum(["T2VA", "I2VA", "L2VA", "FL2VA", "REF2VA", "HYBRID"]).optional(),
+  duration: z.number().positive().max(3600).optional(),
   directory: z.string().min(1).max(4096).optional(),
 }), async (req, res) => {
   const body = req.body as {
     providerId: string; modelId: string; prompt: string;
     imagePaths?: { path: string; mimeType: string }[];
-    language?: "zh" | "en"; readMedia?: boolean; systemTemplate?: string; directory?: string;
+    language?: "zh" | "en"; readMedia?: boolean; systemTemplate?: string;
+    templateId?: string; task?: "T2VA" | "I2VA" | "L2VA" | "FL2VA" | "REF2VA" | "HYBRID";
+    duration?: number; directory?: string;
   };
   const controller = new AbortController();
   const close = () => controller.abort();
@@ -37,6 +42,9 @@ export default Router().post("/", validateFields({
       language: body.language ?? "zh",
       readMedia: body.readMedia ?? true,
       systemTemplate: body.systemTemplate,
+      templateId: body.templateId,
+      task: body.task ?? "REF2VA",
+      duration: body.duration ?? 5,
       directory: body.directory,
       signal: controller.signal,
     });

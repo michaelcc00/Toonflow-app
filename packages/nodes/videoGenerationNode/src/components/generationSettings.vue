@@ -15,7 +15,7 @@
       <div v-if="durations.length || resolutions.length" class="outputOptions">
         <div v-if="durations.length" class="outputField">
           <div class="sectionLabel">时长</div>
-          <el-select v-model="duration" :disabled="disabled" :teleported="false" aria-label="视频时长">
+          <el-select v-model="duration" :disabled="disabled" :teleported="false" aria-label="视频时长" filterable allowCreate defaultFirstOption :reserveKeyword="false">
             <el-option v-for="item in durations" :key="item" :value="item" :label="`${item}秒`" />
           </el-select>
         </div>
@@ -44,7 +44,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed } from "vue";
+import { computed, watch } from "vue";
 import { ElButton, ElPopover, ElSelect, ElOption, ElSwitch } from "element-plus";
 import { IconChevronUp } from "@tabler/icons-vue";
 import type { NodeMediaModel } from "@toonflow/nodes-scaffold/runtime";
@@ -65,6 +65,14 @@ const modes = computed(() => (props.model?.mode ?? []).map(item => ({
 const mappings = computed(() => props.model?.durationResolutionMap ?? []);
 const durations = computed(() => [...new Set(mappings.value.flatMap(item => item.duration))].sort((a, b) => a - b));
 const resolutions = computed(() => resolutionsFor(duration.value));
+
+// allow-create 会产生字符串值，转成数字
+watch(duration, (value) => {
+  if (typeof value === "string") {
+    const num = Number(value);
+    duration.value = Number.isFinite(num) && num > 0 ? num : undefined;
+  }
+});
 
 function resolutionsFor(value: number | undefined) {
   return [...new Set(mappings.value.filter(item => value !== undefined && item.duration.includes(value)).flatMap(item => item.resolution))];

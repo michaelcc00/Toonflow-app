@@ -188,6 +188,9 @@ export function useNodeAi() {
     language?: "zh" | "en";
     readMedia?: boolean;
     systemTemplate?: string;
+    templateId?: string;
+    task?: "T2VA" | "I2VA" | "L2VA" | "FL2VA" | "REF2VA" | "HYBRID";
+    duration?: number;
     directory?: string;
   }, signal?: AbortSignal) {
     return readResult<{ optimized: string }>(await fetch("/api/ai/prompt/optimize", {

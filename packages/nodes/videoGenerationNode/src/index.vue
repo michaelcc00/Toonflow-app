@@ -337,9 +337,9 @@ async function runOptimize() {
   if (!prompt) throw new Error("请先输入提示词");
   const config = await loadPromptOptimizeConfig();
   if (!config.providerId || !config.modelId) throw new Error("请先在设置 → 提示词优化中选择优化模型");
-  const template = config.prompts.find(p => p.id === config.defaultPromptId)?.content
-    ?? config.prompts[0]?.content;
-  if (!template?.trim()) throw new Error("请先在设置 → 提示词优化中添加提示词模板");
+  const template = config.prompts.find(p => p.id === config.defaultPromptId)
+    ?? config.prompts[0];
+  if (!template || (!template.content?.trim() && template.id !== "goohai-builtin")) throw new Error("请先在设置 → 提示词优化中添加提示词模板");
   const images = refList.value.flatMap((item) => item.dataType === "IMAGE" && item.value ? [{ path: item.value.url, mimeType: item.value.mimeType }] : []);
   optimizing.value = true;
   try {
@@ -351,7 +351,10 @@ async function runOptimize() {
       imagePaths: config.readMedia ? images : [],
       language: config.language,
       readMedia: config.readMedia,
-      systemTemplate: template,
+      systemTemplate: template.content,
+      templateId: template.id,
+      task: "REF2VA",
+      duration: data.value.duration ?? 5,
       directory,
     });
     data.value.optimizedPrompt = optimized;
