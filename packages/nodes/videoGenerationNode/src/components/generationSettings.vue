@@ -79,7 +79,12 @@ const durationInput = computed({
 });
 
 function resolutionsFor(value: number | undefined) {
-  return [...new Set(mappings.value.filter(item => value !== undefined && item.duration.includes(value)).flatMap(item => item.resolution))];
+  const matched = [...new Set(mappings.value.filter(item => value !== undefined && item.duration.includes(value)).flatMap(item => item.resolution))];
+  // 自定义时长不在映射表里时，显示该模型全部可用分辨率
+  if (!matched.length && value !== undefined) {
+    return [...new Set(mappings.value.flatMap(item => item.resolution))];
+  }
+  return matched;
 }
 
 function ratioStyle(value: string) {
