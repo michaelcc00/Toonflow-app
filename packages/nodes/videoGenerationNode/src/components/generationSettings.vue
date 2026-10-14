@@ -15,9 +15,12 @@
       <div v-if="durations.length || resolutions.length" class="outputOptions">
         <div v-if="durations.length" class="outputField">
           <div class="sectionLabel">时长</div>
-          <el-select v-model="duration" :disabled="disabled" :teleported="false" aria-label="视频时长" filterable allowCreate defaultFirstOption :reserveKeyword="false">
-            <el-option v-for="item in durations" :key="item" :value="item" :label="`${item}秒`" />
-          </el-select>
+          <el-input v-model="durationInput" :disabled="disabled" aria-label="视频时长" inputmode="numeric" placeholder="输入秒数">
+            <template #suffix>秒</template>
+          </el-input>
+          <div class="durationPresets">
+            <el-button v-for="item in durations" :key="item" size="small" text :disabled="disabled" :type="duration === item ? 'primary' : undefined" @click="duration = item">{{ item }}秒</el-button>
+          </div>
         </div>
         <div v-if="resolutions.length" class="outputField">
           <div class="sectionLabel">分辨率</div>
@@ -44,8 +47,8 @@
 </template>
 
 <script setup lang="ts">
-import { computed, watch } from "vue";
-import { ElButton, ElPopover, ElSelect, ElOption, ElSwitch } from "element-plus";
+import { computed } from "vue";
+import { ElButton, ElInput, ElPopover, ElSelect, ElOption, ElSwitch } from "element-plus";
 import { IconChevronUp } from "@tabler/icons-vue";
 import type { NodeMediaModel } from "@toonflow/nodes-scaffold/runtime";
 
@@ -66,12 +69,13 @@ const mappings = computed(() => props.model?.durationResolutionMap ?? []);
 const durations = computed(() => [...new Set(mappings.value.flatMap(item => item.duration))].sort((a, b) => a - b));
 const resolutions = computed(() => resolutionsFor(duration.value));
 
-// allow-create 会产生字符串值，转成数字
-watch(duration, (value) => {
-  if (typeof value === "string") {
-    const num = Number(value);
-    duration.value = Number.isFinite(num) && num > 0 ? num : undefined;
-  }
+// 输入框字符串与数字双向转换
+const durationInput = computed({
+  get: () => duration.value?.toString() ?? "",
+  set: (val: string) => {
+    const num = Number(val);
+    duration.value = Number.isFinite(num) && num > 0 ? Math.round(num) : undefined;
+  },
 });
 
 function resolutionsFor(value: number | undefined) {
@@ -114,7 +118,16 @@ function ratioStyle(value: string) {
     display: flex;
     gap: 12px;
     margin-bottom: 14px;
-    .outputField { flex: 1; min-width: 0; }
+    .outputField {
+      flex: 1;
+      min-width: 0;
+      .durationPresets {
+        display: flex;
+        flex-wrap: wrap;
+        gap: 4px;
+        margin-top: 6px;
+      }
+    }
   }
 
   .ratioOptions {
