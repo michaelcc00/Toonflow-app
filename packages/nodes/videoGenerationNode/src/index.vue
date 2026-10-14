@@ -41,6 +41,12 @@
         <icon-camera-ai :size="48" stroke="1.25" aria-hidden="true" />
       </div>
       <div v-if="videoResolutionHint" class="resolutionHint" aria-hidden="true">{{ videoResolutionHint }}</div>
+      <div v-if="optimizing" class="optimizingBadge" aria-live="polite">
+        <icon-wand :size="14" class="spin" aria-hidden="true" />正在优化提示词…
+      </div>
+      <div v-if="optimizeDone" class="optimizeDoneMask" @click.stop="optimizeDone = false" role="button" aria-label="优化已完成，点击关闭">
+        <span class="optimizeDoneText">优化已完成</span>
+      </div>
     </div>
     <template #bottom>
       <el-card class="promptCard" shadow="never" :bodyStyle="{ padding: '14px 16px 12px' }">
@@ -170,6 +176,7 @@ const actualVideoWidth = ref(0);
 const actualVideoHeight = ref(0);
 let generationController: AbortController | undefined;
 const optimizing = ref(false);
+const optimizeDone = ref(false);
 const showOptimized = ref(false);
 const hasOptimized = computed(() => !!data.value.optimizedPrompt.trim());
 // 输入框显示原始或优化后：切到哪边，生成就用哪边
@@ -343,6 +350,7 @@ async function runOptimize() {
   if (!template || (!template.content?.trim() && template.id !== "goohai-builtin")) throw new Error("请先在设置 → 提示词优化中添加提示词模板");
   const images = refList.value.flatMap((item) => item.dataType === "IMAGE" && item.value ? [{ path: item.value.url, mimeType: item.value.mimeType }] : []);
   optimizing.value = true;
+  optimizeDone.value = false;
   try {
     const { directory } = await files.getWorkspaceFiles().list();
     const { optimized } = await ai.optimizePrompt({
@@ -361,6 +369,7 @@ async function runOptimize() {
     data.value.optimizedPrompt = optimized;
     data.value.optimizedPromptModel = optimized.split("\n").map((text) => [{ type: "Write", text }]);
     showOptimized.value = true;
+    optimizeDone.value = true;
   } finally {
     optimizing.value = false;
   }
@@ -565,6 +574,46 @@ nodeTools.register({
 
   &:hover .resolutionHint { opacity: 1; }
   border-radius: var(--el-border-radius-base);
+
+  .optimizingBadge {
+    position: absolute;
+    top: 8px;
+    left: 50%;
+    transform: translateX(-50%);
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 4px 12px;
+    border-radius: 12px;
+    background: #000c;
+    color: #fff;
+    font-size: 12px;
+    white-space: nowrap;
+    z-index: 2;
+    .spin { animation: spin 1s linear infinite; }
+  }
+
+  .optimizeDoneMask {
+    position: absolute;
+    inset: 0;
+    display: grid;
+    place-items: center;
+    background: #0009;
+    cursor: pointer;
+    z-index: 3;
+    .optimizeDoneText {
+      padding: 8px 20px;
+      border-radius: 8px;
+      background: var(--el-color-success);
+      color: #fff;
+      font-size: 14px;
+    }
+  }
+}
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
 
   .videoEmpty {
     display: grid;
