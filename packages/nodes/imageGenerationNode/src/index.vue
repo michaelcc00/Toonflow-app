@@ -340,18 +340,17 @@ async function startGeneration() {
   }
   generationController = controller;
   // ACT: 工具立即返回，任务由节点持有，停止或卸载时取消。
-  generation = generationState.run(() => workspace.list()
-    .then(({ directory }) => {
-      controller.signal.throwIfAborted();
-      return inpaintData
-        ? generateInpaint({ ...input, directory }, inpaintData, controller.signal)
-        : ai.generateImage({ ...input, directory }, controller.signal);
-    })
-    .then(({ files: [result] }) => {
-      controller.signal.throwIfAborted();
-      if (!result) throw new Error("供应商未返回图片");
-      outputs.value.image = { dataType: "IMAGE", value: { url: result.path, mimeType: result.mimeType } };
-    }))
+  generation = generationState.run(async () => {
+    const { directory } = await workspace.list();
+    controller.signal.throwIfAborted();
+    const generateResult = inpaintData
+      ? await generateInpaint({ ...input, directory }, inpaintData, controller.signal)
+      : await ai.generateImage({ ...input, directory }, controller.signal);
+    controller.signal.throwIfAborted();
+    const result = Array.isArray(generateResult) ? generateResult[0] : generateResult?.files?.[0];
+    if (!result) throw new Error("供应商未返回图片，返回内容：" + JSON.stringify(generateResult)?.slice(0, 500));
+    outputs.value.image = { dataType: "IMAGE", value: { url: result.path, mimeType: result.mimeType } };
+  })
     .catch((error) => showNodeError(error, "图片生成失败"))
     .finally(() => {
       generationController = undefined;
