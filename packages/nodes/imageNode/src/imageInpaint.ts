@@ -60,15 +60,15 @@ export function useImageInpaint() {
       signal.throwIfAborted();
       requested = true;
       // ACT: 供应商尚未统一支持原生 mask；使用涂色参考引导，再按本地蒙版合成，严格保留区域外像素。
-      const { files: [result] } = await ai.generateImage({
+      const generateResult = await ai.generateImage({
         ...input,
         directory,
         outputDirectory: `assets/${temporaryId}`,
         images: [{ path: inpaint.original, mimeType: "image/png" }, { path: inpaint.guide, mimeType: "image/png" }, ...inpaint.images, ...(input.images ?? [])],
         prompt: buildInpaintPrompt(input.prompt),
       }, signal);
-      signal.throwIfAborted();
-      if (!result) throw new Error("供应商未返回图片");
+      const result = generateResult?.files?.[0];
+      if (!result) throw new Error("供应商未返回图片，返回内容：" + JSON.stringify(generateResult)?.slice(0, 500));
       const generated = await readImage(result.path, result.mimeType);
       context.clearRect(0, 0, canvas.width, canvas.height);
       context.drawImage(generated, 0, 0, canvas.width, canvas.height);
