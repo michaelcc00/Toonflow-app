@@ -186,7 +186,7 @@ watch([visible, () => provider?.id], async ([isVisible]) => {
   const configs = settings.value.mediaProviderConfigs as Record<string, Record<string, unknown>> | undefined;
   formRules.value = formCreate.copyRules(provider?.rules ?? []);
   const providerConfig = provider && configs?.[provider.id];
-  formValues.value = structuredClone(toRaw(providerConfig ?? {}));
+  formValues.value = JSON.parse(JSON.stringify(toRaw(providerConfig ?? {})));
   const rawParams = (providerConfig as { customParams?: unknown } | undefined)?.customParams;
   customParams.value = Array.isArray(rawParams) ? rawParams.filter((p): p is CustomParamDef =>
     !!p && typeof p === "object" && typeof (p as CustomParamDef).id === "string" && typeof (p as CustomParamDef).label === "string"
