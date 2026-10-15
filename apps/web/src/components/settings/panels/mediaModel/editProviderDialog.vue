@@ -132,7 +132,7 @@
 import { translate } from "@toonflow/i18n/vue";
 
 import axios from "axios";
-import { computed, defineAsyncComponent, ref, shallowRef, toRaw, watch, type Component } from "vue";
+import { computed, defineAsyncComponent, nextTick, ref, shallowRef, toRaw, watch, type Component } from "vue";
 import { IconPlus, IconTrash, IconDeviceFloppy, IconEdit } from "@tabler/icons-vue";
 import { ElButton, ElCard, ElDialog, ElInput, ElOption, ElSelect, ElText, ElTag, ElAlert } from "element-plus";
 import formCreate, { type Api, type Options } from "../../formCreate";
@@ -171,13 +171,18 @@ const modeLabels: Record<string, string> = {
   imageReference: "图片参考", videoReference: "视频参考", audioReference: "音频参考",
 };
 
-watch([visible, () => provider?.id], ([isVisible]) => {
+watch([visible, () => provider?.id], async ([isVisible]) => {
   if (!isVisible) return;
   formError.value = "";
   modelEditorVisible.value = false;
   editingModelIndex.value = undefined;
   paramEditorVisible.value = false;
   editingParamIndex.value = undefined;
+  // ACT: 先清空表单状态，等 form-create 销毁旧实例后再填新值，避免上一个供应商的 apiKey 串到下一个。
+  formApi.value = undefined;
+  formValues.value = {};
+  formRules.value = [];
+  await nextTick();
   const configs = settings.value.mediaProviderConfigs as Record<string, Record<string, unknown>> | undefined;
   formRules.value = formCreate.copyRules(provider?.rules ?? []);
   const providerConfig = provider && configs?.[provider.id];
