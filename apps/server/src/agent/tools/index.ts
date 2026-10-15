@@ -68,9 +68,9 @@ export function createAgentToolContext(cwd: string, config: Record<string, unkno
     ffmpeg: signal => { requireWorkspace(); return createWorkspaceFfmpeg(cwd, signal); },
     media: workspaceAvailable ? {
       listModels: listMediaModels,
-      generateImage: async (request, signal) => (await generateMedia(cwd, "image", request, signal)).files,
-      generateVideo: async (request, signal) => (await generateMedia(cwd, "video", request, signal)).files,
-      generateAudio: async (request, signal) => (await generateMedia(cwd, "audio", request, signal)).files,
+      generateImage: (request, signal) => generateMedia(cwd, "image", request, signal),
+      generateVideo: (request, signal) => generateMedia(cwd, "video", request, signal),
+      generateAudio: (request, signal) => generateMedia(cwd, "audio", request, signal),
     } : undefined,
     sdk: {
       defineTool, createReadToolDefinition, createWriteToolDefinition, createEditToolDefinition, createLsToolDefinition,
