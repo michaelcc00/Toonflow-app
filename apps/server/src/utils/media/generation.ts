@@ -136,7 +136,7 @@ export async function generateMedia(
   mediaType: "image" | "video" | "audio",
   request: MediaGenerationRequest,
   signal?: AbortSignal,
-): Promise<GeneratedMedia[]> {
+): Promise<{ files: GeneratedMedia[]; optimizedPrompt?: string }> {
   signal?.throwIfAborted();
   if (!request.prompt.trim()) invalid("请输入生成提示词");
   const directory = await realpath(cwd);
