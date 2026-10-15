@@ -185,11 +185,29 @@ async function exportProvider(provider: MediaProvider) {
       config,
       models: provider.models ?? [],
     };
-    const blob = new Blob([JSON.stringify(payload, null, 2)], { type: "application/json" });
+    const content = JSON.stringify(payload, null, 2);
+    const fileName = `${provider.fileName.replace(/\.ts$/, "")}.toonflow-provider.json`;
+    // ACT: 桌面端 WebView 会拦截 Blob 下载链接，优先用 File System Access API 让用户选保存位置。
+    const picker = (window as Window & { showSaveFilePicker?: (options: unknown) => Promise<{ createWritable: () => Promise<{ write: (data: string) => Promise<void>; close: () => Promise<void> }> }> }).showSaveFilePicker;
+    if (typeof picker === "function") {
+      try {
+        const handle = await picker.call(window, { suggestedName: fileName, types: [{ description: "Toonflow 供应商", accept: { "application/json": [".json"] } }] });
+        if (!handle) return;
+        const writable = await handle.createWritable();
+        await writable.write(content);
+        await writable.close();
+        ElMessage.success("已导出（不含 API Key）");
+        return;
+      } catch (error) {
+        if (error instanceof DOMException && error.name === "AbortError") return;
+        // 降级到 Blob 下载。
+      }
+    }
+    const blob = new Blob([content], { type: "application/json" });
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
     a.href = url;
-    a.download = `${provider.fileName.replace(/\.ts$/, "")}.toonflow-provider.json`;
+    a.download = fileName;
     document.body.appendChild(a);
     a.click();
     a.remove();
