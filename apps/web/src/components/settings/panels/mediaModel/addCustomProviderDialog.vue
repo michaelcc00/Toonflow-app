@@ -62,7 +62,7 @@
               <div class="fileSource">
                 <input ref="fileInput" type="file" accept=".ts" hidden :disabled="saving" @change="readSourceFile" />
                 <el-input :modelValue="fileName" :prefixIcon="IconFileCode" placeholder="尚未选择文件" readonly aria-label="已选择的供应商文件" />
-                <el-button :icon="IconFolderOpen" @click="fileInput?.click()">选择文件</el-button>
+                <el-button :icon="IconFolderOpen" @click="selectFile">选择文件</el-button>
               </div>
               <el-text class="fieldHint" type="info" size="small">支持 .ts 文件，最大 1 MB。</el-text>
             </div>
@@ -196,11 +196,26 @@ function useGeneratedSource(source: string) {
   addedProvider.value = undefined;
 }
 
-async function readSourceFile(event: Event) {
-  const input = event.target as HTMLInputElement;
-  const file = input.files?.[0];
-  input.value = "";
-  if (!file) return;
+async function selectFile() {
+  if (saving.value) return;
+  // ACT: 桌面端 WebView 会拦截隐藏 input 的程序化点击，优先用 File System Access API。
+  const picker = (window as Window & { showOpenFilePicker?: (options: unknown) => Promise<{ getFile: () => Promise<File> }[]> }).showOpenFilePicker;
+  if (typeof picker === "function") {
+    try {
+      const [handle] = await picker.call(window, { multiple: false, types: [{ description: "TypeScript 供应商", accept: { "text/plain": [".ts"] } }] });
+      if (!handle) return;
+      const file = await handle.getFile();
+      await readFileContent(file);
+      return;
+    } catch (error) {
+      if (error instanceof DOMException && error.name === "AbortError") return;
+      // 降级到 input，点击失败时再报。
+    }
+  }
+  fileInput.value?.click();
+}
+
+async function readFileContent(file: File) {
   formError.value = "";
   try {
     if (!/\.ts$/i.test(file.name) || file.size > 1024 * 1024) throw new Error("请选择不超过 1 MB 的 .ts 文件");
@@ -210,6 +225,14 @@ async function readSourceFile(event: Event) {
     fileSource.value = fileName.value = "";
     formError.value = error instanceof Error ? error.message : "读取文件失败";
   }
+}
+
+async function readSourceFile(event: Event) {
+  const input = event.target as HTMLInputElement;
+  const file = input.files?.[0];
+  input.value = "";
+  if (!file) return;
+  await readFileContent(file);
 }
 
 async function addProvider() {
