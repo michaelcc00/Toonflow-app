@@ -388,12 +388,19 @@ async function runCommand(command: unknown) {
 async function confirmSelectNodes(nodeIds: string[]) {
   const handle = dialogHandle.value;
   dialogHandle.value = undefined;
-  if (!handle || !nodeIds.length) return;
+  if (!handle) return;
   const targetNode = flow.findNode(handle.node.id);
   if (!targetNode || flow.findNode(handle.node.id) !== handle.node) return;
   const run = async () => {
+    // ACT: 已选 = 目标连线集合；取消勾选的断开，新勾选的连上，已连的跳过不重复建边。
+    const newIds = new Set(nodeIds);
+    const currentEdges = flow.getEdges.value.filter(edge => edge.target === targetNode.id && edge.targetHandle === handle.id);
+    const toRemove = currentEdges.filter(edge => !newIds.has(edge.source));
+    if (toRemove.length) flow.removeEdges(toRemove.map(edge => edge.id));
+    const currentIds = new Set(currentEdges.map(edge => edge.source));
+    const toAdd = nodeIds.filter(id => !currentIds.has(id));
     const edges: { source: string; target: string; sourceHandle: string; targetHandle: string }[] = [];
-    for (const nodeId of nodeIds) {
+    for (const nodeId of toAdd) {
       const sourceNode = flow.findNode(nodeId);
       if (!sourceNode) continue;
       const connection = (sourceNode.data.handles as NodeHandle[] | undefined)
@@ -404,7 +411,7 @@ async function confirmSelectNodes(nodeIds: string[]) {
       if (connection) edges.push(connection);
     }
     if (edges.length) flow.addEdges(edges);
-    else ElMessage.warning("所选节点没有兼容的端口可连接");
+    else if (toAdd.length) ElMessage.warning("所选节点没有兼容的端口可连接");
   };
   try {
     if (batchHistory) await batchHistory(run);
