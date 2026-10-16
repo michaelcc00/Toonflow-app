@@ -55,12 +55,6 @@
         <promptInput v-if="editor?.mode === 'inpaint'" v-model="data.inpaintPromptModel" v-model:text="data.inpaintPrompt" :references="referenceMentions" expandable />
         <promptInput v-else v-model="data.promptModel" v-model:text="data.prompt" :references="referenceMentions" expandable />
         <div class="promptFooter">
-          <div v-if="editor?.mode !== 'inpaint'" class="batchRow">
-            <span class="batchLabel">生成批次</span>
-            <el-select v-model="batchCountModel" class="batchSelect" allowCreate filterable defaultFirstOption :disabled="generating || deleting" placeholder="1" aria-label="生成批次" placement="top-start">
-              <el-option v-for="count in [1, 2, 3, 4, 5]" :key="count" :label="String(count)" :value="count" />
-            </el-select>
-          </div>
           <el-select
             v-if="editor?.mode !== 'inpaint'"
             v-model="data.model"
@@ -92,6 +86,12 @@
             :customParams="customParams"
             :providerLabel="selectedModel?.providerLabel"
             :disabled="generating || deleting || !selectedModel" />
+          <div v-if="editor?.mode !== 'inpaint'" class="batchRow">
+            <span class="batchLabel">生成批次</span>
+            <el-select v-model="batchCountModel" class="batchSelect" allowCreate filterable defaultFirstOption :disabled="generating || deleting" placeholder="1" aria-label="生成批次" placement="top-start">
+              <el-option v-for="count in [1, 2, 3, 4, 5]" :key="count" :label="String(count)" :value="count" />
+            </el-select>
+          </div>
           <el-button v-if="editor?.mode === 'inpaint'" class="confirmButton" type="primary" :icon="IconCheck" :loading="editor.busy" :disabled="deleting || uploading || !generationPrompt" @click="confirmInpaint().catch(error => showNodeError(error, '重绘节点创建失败'))">确认</el-button>
           <el-button
             v-else
