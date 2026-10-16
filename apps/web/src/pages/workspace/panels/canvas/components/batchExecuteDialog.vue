@@ -8,7 +8,7 @@
     :closeOnClickModal="false"
     @closed="onClosed">
     <div class="batchExecute">
-      <div v-if="store.active" class="batchRunningBanner" aria-live="polite">
+      <div v-if="store.active && hasPending" class="batchRunningBanner" aria-live="polite">
         <span class="runningDot" aria-hidden="true" />
         <span class="runningText">正在执行中</span>
         <span class="runningProgress">已完成 {{ store.doneCount }}/{{ store.total }}</span>
@@ -41,15 +41,15 @@
       </div>
     </div>
     <template #footer>
-      <el-button v-if="store.active" @click="cancelBatch">取消</el-button>
-      <el-button v-else @click="store.dialogVisible = false">关闭</el-button>
+      <el-button v-if="store.active && hasPending" @click="cancelBatch">取消</el-button>
+      <el-button v-else @click="closeDialog">关闭</el-button>
       <el-button v-if="!store.active" type="primary" :disabled="!store.items.length" @click="startBatch">确定</el-button>
     </template>
   </el-dialog>
 </template>
 
 <script setup lang="ts">
-import { onMounted, onScopeDispose, ref } from "vue";
+import { computed, onMounted, onScopeDispose, ref } from "vue";
 import { useVueFlow } from "@vue-flow/core";
 import { ElButton, ElDialog, ElEmpty, ElInputNumber, ElProgress, ElTag, ElText } from "element-plus";
 import { IconGripVertical, IconTrash } from "@tabler/icons-vue";
@@ -64,6 +64,13 @@ const queueMap = getBatchQueueMap(flow);
 const dragIndex = ref(-1);
 let cancelled = false;
 const statusTexts = { queued: "排队中", running: "执行中", done: "已完成", failed: "失败", cancelled: "已取消" } as const;
+const hasPending = computed(() => store.items.some(item => item.status === "queued" || item.status === "running"));
+
+function closeDialog() {
+  // 全部完成后关闭即清理状态，右上角图标消失；设置阶段关闭只隐藏弹窗。
+  if (store.active) store.reset();
+  else store.dialogVisible = false;
+}
 
 function onOpenRequest() {
   store.dialogVisible = true;
