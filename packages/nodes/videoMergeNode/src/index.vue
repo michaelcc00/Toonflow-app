@@ -6,7 +6,8 @@
     topWidth="max-content"
     :downloadUrl="previewUrl"
     :downloadName="outputFile?.url.split(/[\\/]/).at(-1)"
-    :bottomWidth="520">
+    :bottomWidth="520"
+    :style="{ width: previewUrl && videoWidth ? `${videoWidth + 18}px` : undefined }">
     <template #topActions>
       <mediaHistory mediaType="video" :current="outputFile" :disabled="merging || deleting" @select="outputs.video = { dataType: 'VIDEO', value: $event }" />
     </template>
@@ -15,7 +16,8 @@
         v-if="previewUrl"
         ref="player"
         :src="previewUrl"
-        label="合成视频" />
+        label="合成视频"
+        @loadedmetadata="resizeVideo" />
       <div v-else class="mergeEmpty" role="img" aria-label="暂无合成视频">
         <icon-movie :size="48" stroke="1.25" aria-hidden="true" />
       </div>
@@ -50,7 +52,7 @@
 </template>
 
 <script setup lang="ts">
-import { computed, ref } from "vue";
+import { computed, nextTick, ref } from "vue";
 import { useVueFlow } from "@vue-flow/core";
 import { ElButton, ElCard, ElEmpty, ElLoading } from "element-plus";
 import { IconMovie } from "@tabler/icons-vue";
@@ -72,7 +74,7 @@ defineOptions({
   ] satisfies NodeHandle[],
 });
 const vLoading = ElLoading.directive;
-const { id, node, nodeProps, nodeEvent, outputs, files, ffmpeg } = useNode({
+const { id, node, nodeProps, nodeEvent, outputs, files, ffmpeg, updateNodeInternals } = useNode({
   label: "视频合成",
 });
 const flow = useVueFlow();
@@ -81,6 +83,7 @@ const generationState = useNodeGeneration(outputs, () => mergeController?.abort(
 const { generating: merging } = generationState;
 const mergeDone = ref(false);
 const deleting = ref(false);
+const videoWidth = ref(0);
 const player = ref<InstanceType<typeof videoPlayer>>();
 const dragIndex = ref(-1);
 let mergeController: AbortController | undefined;
@@ -92,6 +95,14 @@ const previewUrl = files.useFileUrl(outputFile, (error) => showNodeError(error, 
 function sourceLabel(nodeId: string) {
   const source = flow.findNode(nodeId);
   return String(source?.data?.label ?? source?.label ?? nodeId);
+}
+
+async function resizeVideo(event: Event) {
+  const video = event.currentTarget as HTMLVideoElement;
+  if (!video.videoWidth || !video.videoHeight) return;
+  videoWidth.value = Math.max(180, (240 * video.videoWidth) / video.videoHeight);
+  await nextTick();
+  updateNodeInternals();
 }
 
 function onDragStart(index: number) {
