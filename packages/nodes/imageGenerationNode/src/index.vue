@@ -41,6 +41,9 @@
         <icon-photo-ai :size="48" stroke="1.25" aria-hidden="true" />
       </div>
       <div v-if="pixelResolution" class="resolutionHint" aria-hidden="true">{{ pixelResolution }}</div>
+      <div v-if="batchQueue" class="batchQueueMask" aria-live="polite">
+        <span>批量排队 {{ batchQueue.position }}/{{ batchQueue.total }}</span>
+      </div>
     </div>
     <template v-if="!isMarkMode" #bottom>
       <div v-if="lightingVisible" ref="lightingTarget" />
@@ -121,7 +124,7 @@
 import { computed, nextTick, onMounted, onScopeDispose, ref, watch } from "vue";
 import { ElButton, ElCard, ElSelect, ElOption, ElOptionGroup, ElLoading, ElImageViewer } from "element-plus";
 import { IconCheck, IconPhotoAi, IconSparkles, IconArrowUp, IconPlayerStop, IconTransfer, IconLayoutGrid, IconBrush, IconPencil, IconSun, IconCameraRotate, IconPanoramaHorizontal, IconChevronDown } from "@tabler/icons-vue";
-import { nodeSkeleton, nodeTools, useNode, z, type NodeMediaModel, type NodeHandle } from "@toonflow/nodes-scaffold/runtime";
+import { nodeSkeleton, nodeTools, useBatchQueue, useNode, z, type NodeMediaModel, type NodeHandle } from "@toonflow/nodes-scaffold/runtime";
 import { groupNodeModels } from "@toonflow/node-shared/groupNodeModels";
 import { showNodeError } from "@toonflow/node-shared/showNodeError";
 import { useNodeGeneration } from "@toonflow/node-shared/useNodeGeneration";
@@ -187,6 +190,7 @@ const actualHeight = ref(0);
 let generationController: AbortController | undefined;
 const generationState = useNodeGeneration(outputs, () => generationController?.abort());
 const { generating } = generationState;
+const batchQueue = useBatchQueue();
 let generation: Promise<void> | undefined;
 const batchCurrent = ref(0);
 const batchTotal = ref(0);
@@ -538,6 +542,18 @@ nodeTools.register({
   }
 
   &:hover .resolutionHint { opacity: 1; }
+
+  .batchQueueMask {
+    position: absolute;
+    inset: 0;
+    z-index: 2;
+    display: grid;
+    place-items: center;
+    background: rgb(0 0 0 / 0.55);
+    color: #fff;
+    font-size: 14px;
+    pointer-events: none;
+  }
 
   .inpaintGuide {
     position: relative;
