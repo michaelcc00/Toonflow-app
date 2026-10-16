@@ -30,7 +30,7 @@
         </template>
       </el-dropdown>
     </template>
-    <div v-loading="generating || uploading" class="videoContent nopan" :aria-busy="generating || uploading">
+    <div v-loading="generating || uploading" class="videoContent nopan" :aria-busy="generating || uploading" :element-loading-text="batchProgressText">
       <videoPlayer
         v-if="previewUrl"
         ref="player"
@@ -67,6 +67,12 @@
             aria-label="切换原始或优化后提示词" />
         </div>
         <promptInput v-model="displayPromptModel" v-model:text="displayPrompt" :references="referenceMentions" expandable />
+        <div class="batchRow">
+          <span class="batchLabel">生成批次</span>
+          <el-select v-model="batchCountModel" class="batchSelect" allowCreate filterable defaultFirstOption :disabled="generating || deleting" placeholder="1" aria-label="生成批次" placement="top-start">
+            <el-option v-for="count in [1, 2, 3, 4, 5]" :key="count" :label="String(count)" :value="count" />
+          </el-select>
+        </div>
         <div class="promptFooter">
           <el-select
             v-model="data.model"
@@ -151,7 +157,7 @@ const { id, node, nodeProps, nodeEvent, outputs, files, ai, updateNodeInternals 
   label: "视频生成",
 });
 type PromptModel = NonNullable<InstanceType<typeof promptInput>["$props"]["modelValue"]>;
-const data = computed(() => node.data as { prompt: string; promptModel: PromptModel; optimizedPrompt: string; optimizedPromptModel: PromptModel; model: string; duration?: number; resolution: string; ratio: string; mode: string; generateAudio: boolean });
+const data = computed(() => node.data as { prompt: string; promptModel: PromptModel; optimizedPrompt: string; optimizedPromptModel: PromptModel; model: string; duration?: number; resolution: string; ratio: string; mode: string; generateAudio: boolean; batchCount?: number });
 data.value.prompt ??= "";
 data.value.promptModel ??= [];
 data.value.optimizedPrompt ??= "";
@@ -161,6 +167,7 @@ data.value.resolution ??= "";
 data.value.mode ??= "";
 data.value.generateAudio ??= true;
 data.value.ratio ??= "9:16";
+data.value.batchCount ??= 1;
 const { refList, referenceMentions, setReferencePreview, removeReference } = useNodeReferences("in", { goohaiLabels: true });
 const models = ref<NodeMediaModel[]>([]);
 const modelsLoading = ref(false);
@@ -209,6 +216,15 @@ async function loadPromptOptimizeConfig(): Promise<{ enabled: boolean; providerI
 const generationState = useNodeGeneration(outputs, () => generationController?.abort());
 const { generating } = generationState;
 let generation: Promise<void> | undefined;
+const batchCurrent = ref(0);
+const batchTotal = ref(0);
+const batchCountModel = computed({
+  get: () => Math.max(1, Math.floor(Number(data.value.batchCount) || 1)),
+  set: (value) => { data.value.batchCount = Math.max(1, Math.floor(Number(value) || 1)); },
+});
+const batchProgressText = computed(() => batchTotal.value > 1 && generating.value
+  ? `正在生成第 ${batchCurrent.value}/${batchTotal.value} 个视频`
+  : "");
 let modelsRequest: Promise<void> | undefined;
 // ACT: 供应商未声明视频比例范围，沿用界面的通用比例，具体支持范围由供应商校验。
 const ratioOptions = ["16:9", "9:16", "1:1", "4:3", "3:4"];
@@ -413,13 +429,16 @@ async function startGeneration() {
   };
   generationController = controller;
   // ACT: 工具立即返回，任务由节点持有，停止或卸载时取消。
-  generation = generationState.run(() => workspace
-    .list()
-    .then(({ directory }) => {
+  // ACT: 批量时循环生成，每次写不同文件，历史里都能找到。
+  const total = batchCountModel.value;
+  batchTotal.value = total;
+  batchCurrent.value = 0;
+  generation = generationState.run(async () => {
+    const { directory } = await workspace.list();
+    for (let index = 0; index < total; index++) {
       controller.signal.throwIfAborted();
-      return ai.generateVideo({ ...input, directory }, controller.signal);
-    })
-    .then(({ files: [result], optimizedPrompt }) => {
+      batchCurrent.value = index + 1;
+      const { files: [result], optimizedPrompt } = await ai.generateVideo({ ...input, directory }, controller.signal);
       controller.signal.throwIfAborted();
       if (optimizedPrompt) {
         // 供应商返回了本次实际使用的提示词（如 LLM 优化版）：写回输入框，下次直接修改
@@ -428,10 +447,13 @@ async function startGeneration() {
       }
       if (!result) throw new Error("供应商未返回视频");
       outputs.value.video = { dataType: "VIDEO", value: { url: result.path, mimeType: result.mimeType } };
-    }))
+    }
+  })
     .catch((error) => showNodeError(error, "视频生成失败"))
     .finally(() => {
       generationController = undefined;
+      batchCurrent.value = 0;
+      batchTotal.value = 0;
     });
   return { status: "generating" };
 }
@@ -634,6 +656,26 @@ nodeTools.register({
     margin: 8px 0;
     color: var(--el-text-color-secondary);
     font-size: 12px;
+  }
+
+  .batchRow {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-top: 10px;
+
+    .batchLabel {
+      color: var(--el-text-color-secondary);
+      font-size: 13px;
+    }
+
+    .batchSelect {
+      width: 90px;
+
+      &:deep(.el-select__wrapper) {
+        padding: 0 8px;
+      }
+    }
   }
 
   .promptFooter {
