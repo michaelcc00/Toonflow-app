@@ -191,8 +191,8 @@ let generation: Promise<void> | undefined;
 const batchCurrent = ref(0);
 const batchTotal = ref(0);
 const batchCountModel = computed({
-  get: () => Math.max(1, Math.floor(Number(data.value.batchCount) || 1)),
-  set: (value) => { data.value.batchCount = Math.max(1, Math.floor(Number(value) || 1)); },
+  get: () => Math.min(10, Math.max(1, Math.floor(Number(data.value.batchCount) || 1))),
+  set: (value) => { data.value.batchCount = Math.min(10, Math.max(1, Math.floor(Number(value) || 1))); },
 });
 const batchProgressText = computed(() => batchTotal.value > 1 && generating.value
   ? `正在生成第 ${batchCurrent.value}/${batchTotal.value} 张`
@@ -579,7 +579,7 @@ nodeTools.register({
       }
 
       .batchSelect {
-        width: 90px;
+        width: 64px;
 
         &:deep(.el-select__wrapper) {
           padding: 0 8px;
