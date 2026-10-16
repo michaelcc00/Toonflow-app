@@ -35,7 +35,7 @@
           </div>
           <div class="historyPreview" v-loading="!!selected && !previewReady && !previewError">
             <el-alert v-if="previewError" :title="previewError" type="error" :closable="false" />
-            <img v-else-if="previewUrl && mediaType === 'image'" :src="previewUrl" alt="历史图片预览" @load="previewReady = true" @error="previewError = '无法预览该图片'" />
+            <img v-else-if="previewUrl && mediaType === 'image'" class="previewImage" :src="previewUrl" alt="历史图片预览，点击放大" title="点击放大" @load="previewReady = true" @error="previewError = '无法预览该图片'" @click="previewViewerVisible = true" />
             <video v-else-if="previewUrl" :src="previewUrl" controls playsinline preload="auto" aria-label="历史视频预览" @loadeddata="previewReady = true" @error="previewError = '无法预览该视频'" />
           </div>
         </div>
@@ -47,12 +47,13 @@
       <el-button type="primary" :disabled="disabled || loading || !selected || !previewUrl || !previewReady || !!previewError" @click="selectOutput">设为当前结果</el-button>
     </template>
   </el-dialog>
+  <el-image-viewer v-if="previewViewerVisible && previewUrl && mediaType === 'image'" :urlList="[previewUrl]" teleported @close="previewViewerVisible = false" />
 </template>
 
 <script setup lang="ts">
 import { computed, ref, watch } from "vue";
 import { useNode } from "@vue-flow/core";
-import { ElAlert, ElButton, ElDialog, ElEmpty, ElLoading, ElMessage, ElMessageBox, ElPagination } from "element-plus";
+import { ElAlert, ElButton, ElDialog, ElEmpty, ElImageViewer, ElLoading, ElMessage, ElMessageBox, ElPagination } from "element-plus";
 import { IconHistory, IconTrash } from "@tabler/icons-vue";
 import { useNodeFiles } from "@toonflow/nodes-scaffold/workspaceFiles";
 import type { NodeMediaValue } from "@toonflow/nodes-scaffold/values";
@@ -72,6 +73,7 @@ const selected = ref<NodeMediaValue>();
 const page = ref(1);
 const pageSize = 20;
 const deletingUrl = ref("");
+const previewViewerVisible = ref(false);
 const pageItems = computed(() => items.value.slice((page.value - 1) * pageSize, page.value * pageSize));
 const mimeTypes: Record<string, string> = {
   png: "image/png", jpg: "image/jpeg", jpeg: "image/jpeg", webp: "image/webp", gif: "image/gif",
@@ -217,6 +219,7 @@ async function deleteItem(item: NodeMediaValue) {
       border-radius: var(--el-border-radius-base);
 
       img, video { width: 100%; max-height: 360px; object-fit: contain; }
+      .previewImage { cursor: zoom-in; }
     }
   }
 
