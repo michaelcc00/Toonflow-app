@@ -23,7 +23,7 @@
     <template #topRightActions>
       <el-button :icon="IconPencil" :disabled="generating || deleting || uploading || lighting?.generating || multiAngle?.generating || panorama?.busy || !previewUrl || gridSplit?.splitting" text title="标记" aria-label="标记" @click.stop="startEditor('mark')" />
     </template>
-    <div v-loading="generating || uploading" class="imageContent nopan" :aria-busy="generating || uploading">
+    <div v-loading="generating || uploading" class="imageContent nopan" :aria-busy="generating || uploading" :element-loading-text="batchProgressText">
       <imageEditor
         v-if="previewUrl"
         ref="editor"
@@ -54,6 +54,12 @@
           @remove="removeReference" />
         <promptInput v-if="editor?.mode === 'inpaint'" v-model="data.inpaintPromptModel" v-model:text="data.inpaintPrompt" :references="referenceMentions" expandable />
         <promptInput v-else v-model="data.promptModel" v-model:text="data.prompt" :references="referenceMentions" expandable />
+        <div v-if="editor?.mode !== 'inpaint'" class="batchRow">
+          <span class="batchLabel">生成批次</span>
+          <el-select v-model="batchCountModel" class="batchSelect" allowCreate filterable defaultFirstOption :disabled="generating || deleting" placeholder="1" aria-label="生成批次" placement="top-start">
+            <el-option v-for="count in [1, 2, 3, 4, 5]" :key="count" :label="String(count)" :value="count" />
+          </el-select>
+        </div>
         <div class="promptFooter">
           <el-select
             v-if="editor?.mode !== 'inpaint'"
@@ -144,7 +150,7 @@ const { id, node, nodeProps, nodeEvent, outputs, files, ai, updateNodeInternals 
   label: "图片生成",
 });
 type PromptModel = NonNullable<InstanceType<typeof promptInput>["$props"]["modelValue"]>;
-const data = computed(() => node.data as { prompt: string; promptModel: PromptModel; inpaintPrompt: string; inpaintPromptModel: PromptModel; model: string; size: string; ratio: string; customParamValues?: Record<string, unknown>; inpaint?: ImageInpaint });
+const data = computed(() => node.data as { prompt: string; promptModel: PromptModel; inpaintPrompt: string; inpaintPromptModel: PromptModel; model: string; size: string; ratio: string; batchCount?: number; customParamValues?: Record<string, unknown>; inpaint?: ImageInpaint });
 data.value.prompt ??= "";
 data.value.promptModel ??= [];
 data.value.inpaintPrompt ??= "";
@@ -152,6 +158,7 @@ data.value.inpaintPromptModel ??= [];
 data.value.model ??= "";
 data.value.size ??= "";
 data.value.ratio ??= "16:9";
+data.value.batchCount ??= 1;
 data.value.customParamValues ??= {};
 const { refList, referenceMentions, setReferencePreview, removeReference } = useNodeReferences();
 const models = ref<NodeMediaModel[]>([]);
@@ -181,6 +188,15 @@ let generationController: AbortController | undefined;
 const generationState = useNodeGeneration(outputs, () => generationController?.abort());
 const { generating } = generationState;
 let generation: Promise<void> | undefined;
+const batchCurrent = ref(0);
+const batchTotal = ref(0);
+const batchCountModel = computed({
+  get: () => Math.max(1, Math.floor(Number(data.value.batchCount) || 1)),
+  set: (value) => { data.value.batchCount = Math.max(1, Math.floor(Number(value) || 1)); },
+});
+const batchProgressText = computed(() => batchTotal.value > 1 && generating.value
+  ? `正在生成第 ${batchCurrent.value}/${batchTotal.value} 张`
+  : "");
 let modelsRequest: Promise<void> | undefined;
 const selectedModel = computed(() => models.value.find((item) => JSON.stringify([item.providerId, item.modelId]) === data.value.model));
 const sizeOptions = computed(() => (selectedModel.value?.imageSizes?.length ? selectedModel.value.imageSizes : ["2K"]));
@@ -340,20 +356,29 @@ async function startGeneration() {
   }
   generationController = controller;
   // ACT: 工具立即返回，任务由节点持有，停止或卸载时取消。
+  // ACT: 局部重绘只生成 1 张；批量时循环生成，每次写不同文件，历史里都能找到。
+  const total = inpaintData ? 1 : batchCountModel.value;
+  batchTotal.value = total;
+  batchCurrent.value = 0;
   generation = generationState.run(async () => {
     const { directory } = await workspace.list();
-    controller.signal.throwIfAborted();
-    const generateResult = inpaintData
-      ? await generateInpaint({ ...input, directory }, inpaintData, controller.signal)
-      : await ai.generateImage({ ...input, directory }, controller.signal);
-    controller.signal.throwIfAborted();
-    const result = Array.isArray(generateResult) ? generateResult[0] : generateResult?.files?.[0];
-    if (!result) throw new Error("供应商未返回图片，返回内容：" + JSON.stringify(generateResult)?.slice(0, 500));
-    outputs.value.image = { dataType: "IMAGE", value: { url: result.path, mimeType: result.mimeType } };
+    for (let index = 0; index < total; index++) {
+      controller.signal.throwIfAborted();
+      batchCurrent.value = index + 1;
+      const generateResult = inpaintData
+        ? await generateInpaint({ ...input, directory }, inpaintData, controller.signal)
+        : await ai.generateImage({ ...input, directory }, controller.signal);
+      controller.signal.throwIfAborted();
+      const result = Array.isArray(generateResult) ? generateResult[0] : generateResult?.files?.[0];
+      if (!result) throw new Error("供应商未返回图片，返回内容：" + JSON.stringify(generateResult)?.slice(0, 500));
+      outputs.value.image = { dataType: "IMAGE", value: { url: result.path, mimeType: result.mimeType } };
+    }
   })
     .catch((error) => showNodeError(error, "图片生成失败"))
     .finally(() => {
       generationController = undefined;
+      batchCurrent.value = 0;
+      batchTotal.value = 0;
     });
   return { status: "generating" };
 }
@@ -536,6 +561,25 @@ nodeTools.register({
 
 .promptCard {
   .inpaintInfo { margin-bottom: 8px; }
+  .batchRow {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-top: 10px;
+
+    .batchLabel {
+      color: var(--el-text-color-secondary);
+      font-size: 13px;
+    }
+
+    .batchSelect {
+      width: 90px;
+
+      &:deep(.el-select__wrapper) {
+        padding: 0 8px;
+      }
+    }
+  }
   .promptFooter {
     display: flex;
     align-items: center;
