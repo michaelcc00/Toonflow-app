@@ -97,7 +97,7 @@ watch(visible, async (open, _previous, onCleanup) => {
     // ACT: 副本使用新 ID，但当前结果仍可能引用原节点文件；只补当前结果，不继承原目录的全部历史。
     const current = props.current && { ...props.current, url: props.current.url.replaceAll("\\", "/") };
     if (current) results.set(current.url, current);
-    items.value = [...results.values()].sort((left, right) => left.url.localeCompare(right.url, "zh-CN", { numeric: true }));
+    items.value = [...results.values()].sort((left, right) => right.url.localeCompare(left.url, "zh-CN", { numeric: true }));
     selected.value = current ?? items.value[0];
     page.value = Math.floor(Math.max(0, items.value.findIndex(item => item.url === selected.value?.url)) / pageSize) + 1;
   } catch (error) {
