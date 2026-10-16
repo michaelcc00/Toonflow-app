@@ -67,6 +67,9 @@
         <template v-else>
           <el-dropdown-item v-if="!directNodes" command="actions" :icon="IconChevronLeft">返回操作菜单</el-dropdown-item>
           <el-dropdown-item v-else disabled>添加节点</el-dropdown-item>
+          <el-dropdown-item v-if="pendingHandle?.type === 'target'" command="selectNodes" :icon="IconListCheck">
+            选择节点
+          </el-dropdown-item>
           <el-dropdown-item v-for="node in filteredNodes" :key="node.type" :command="node.type" :icon="node.icon">
             {{ node.label }}
           </el-dropdown-item>
@@ -75,6 +78,12 @@
       </el-dropdown-menu>
     </template>
   </el-dropdown>
+  <selectNodesDialog
+    v-model:visible="selectNodesVisible"
+    :pendingNodeId="dialogHandle?.node.id"
+    :pendingHandleId="dialogHandle?.id"
+    :remoteNodes="remoteNodes"
+    @confirm="confirmSelectNodes" />
 </template>
 
 <script setup lang="ts">
@@ -84,6 +93,7 @@ import { isTypeCompatible, useNodeEvent, validateConnection, type NodeHandle } f
 import { ElMessage } from "element-plus";
 import type { DropdownInstance } from "element-plus";
 import selectionHandle from "./selectionHandle.vue";
+import selectNodesDialog from "./selectNodesDialog.vue";
 import { getSelectionConnections } from "../selectionConnections";
 import { getSelectionRoots, getSelectionTree } from "../selectionNodes";
 import { arrangeSelection } from "../arrangeSelection";
@@ -101,6 +111,7 @@ import {
   IconLayoutColumns,
   IconLayoutRows,
   IconLayoutGrid,
+  IconListCheck,
 } from "@tabler/icons-vue";
 
 const { remoteNodes = [], pasteNode, uploadFiles, canUndo = false, canRedo = false, selectionBusy = false, batchHistory } = defineProps<{
@@ -127,6 +138,8 @@ let nodePosition = { x: 0, y: 0 };
 type DraggedHandle = { node: GraphNode; id: string; type: HandleType; start: ConnectingHandle };
 const pendingHandle = shallowRef<DraggedHandle>();
 const pendingGroup = shallowRef<GraphNode[]>([]);
+const selectNodesVisible = ref(false);
+const dialogHandle = shallowRef<DraggedHandle>();
 const selectionHandleRef = ref<InstanceType<typeof selectionHandle>>();
 const groupHandleRefs = ref<InstanceType<typeof selectionHandle>[]>([]);
 const groups = computed(() => flow.getNodes.value.filter(node => node.type === "canvasGroup" && !node.hidden));
@@ -299,6 +312,13 @@ async function runCommand(command: unknown) {
     await deleteSelection();
     return;
   }
+  if (command === "selectNodes") {
+    // ACT: 菜单关闭会清 pendingHandle，先把拖出的端口存到 dialogHandle 供弹窗用。
+    dialogHandle.value = pendingHandle.value;
+    menu.value?.handleClose();
+    selectNodesVisible.value = true;
+    return;
+  }
   const node = filteredNodes.value.find((option) => option.type === command);
   if (!node) return;
   const handle = pendingHandle.value;
@@ -363,6 +383,35 @@ async function runCommand(command: unknown) {
   else ElMessage.warning("节点已创建，但没有兼容的端口可连接");
   clearConnection();
   menu.value?.handleClose();
+}
+
+async function confirmSelectNodes(nodeIds: string[]) {
+  const handle = dialogHandle.value;
+  dialogHandle.value = undefined;
+  if (!handle || !nodeIds.length) return;
+  const targetNode = flow.findNode(handle.node.id);
+  if (!targetNode || flow.findNode(handle.node.id) !== handle.node) return;
+  const run = async () => {
+    const edges: { source: string; target: string; sourceHandle: string; targetHandle: string }[] = [];
+    for (const nodeId of nodeIds) {
+      const sourceNode = flow.findNode(nodeId);
+      if (!sourceNode) continue;
+      const connection = (sourceNode.data.handles as NodeHandle[] | undefined)
+        ?.filter(item => item.type === "source")
+        .map(item => ({ source: sourceNode.id, target: targetNode.id, sourceHandle: item.id, targetHandle: handle.id }))
+        .find(item => flow.nodesConnectable.value && sourceNode.connectable !== false && targetNode.connectable !== false
+          && validateConnection(item, { sourceNode, targetNode, nodes: flow.getNodes.value, edges: flow.getEdges.value }));
+      if (connection) edges.push(connection);
+    }
+    if (edges.length) flow.addEdges(edges);
+    else ElMessage.warning("所选节点没有兼容的端口可连接");
+  };
+  try {
+    if (batchHistory) await batchHistory(run);
+    else await run();
+  } catch (error) {
+    ElMessage.error(error instanceof Error ? error.message : "连接节点失败");
+  }
 }
 
 async function deleteSelection(selection = selectedNodes.value) {
