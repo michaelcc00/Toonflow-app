@@ -5,6 +5,7 @@ export * from "./values";
 export * from "./nodeInputs";
 export * from "./nodeEvent";
 export * from "./nodeTools";
+export * from "./batchQueue";
 export * from "./workspaceFiles";
 
 export * from "./nodeAi";
