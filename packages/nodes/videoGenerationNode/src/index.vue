@@ -67,13 +67,13 @@
             aria-label="切换原始或优化后提示词" />
         </div>
         <promptInput v-model="displayPromptModel" v-model:text="displayPrompt" :references="referenceMentions" expandable />
-        <div class="batchRow">
-          <span class="batchLabel">生成批次</span>
-          <el-select v-model="batchCountModel" class="batchSelect" allowCreate filterable defaultFirstOption :disabled="generating || deleting" placeholder="1" aria-label="生成批次" placement="top-start">
-            <el-option v-for="count in [1, 2, 3, 4, 5]" :key="count" :label="String(count)" :value="count" />
-          </el-select>
-        </div>
         <div class="promptFooter">
+          <div class="batchRow">
+            <span class="batchLabel">生成批次</span>
+            <el-select v-model="batchCountModel" class="batchSelect" allowCreate filterable defaultFirstOption :disabled="generating || deleting" placeholder="1" aria-label="生成批次" placement="top-start">
+              <el-option v-for="count in [1, 2, 3, 4, 5]" :key="count" :label="String(count)" :value="count" />
+            </el-select>
+          </div>
           <el-select
             v-model="data.model"
             class="modelSelect"
@@ -184,7 +184,7 @@ const actualVideoHeight = ref(0);
 let generationController: AbortController | undefined;
 const optimizing = ref(false);
 const optimizeDone = ref(false);
-const showOptimized = ref(false);
+const showOptimized = ref(!!data.value.optimizedPrompt.trim());
 const hasOptimized = computed(() => !!data.value.optimizedPrompt.trim());
 // 输入框显示原始或优化后：切到哪边，生成就用哪边
 const displayPrompt = computed({
@@ -658,32 +658,31 @@ nodeTools.register({
     font-size: 12px;
   }
 
-  .batchRow {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    margin-top: 10px;
-
-    .batchLabel {
-      color: var(--el-text-color-secondary);
-      font-size: 13px;
-    }
-
-    .batchSelect {
-      width: 90px;
-
-      &:deep(.el-select__wrapper) {
-        padding: 0 8px;
-      }
-    }
-  }
-
   .promptFooter {
     display: flex;
     align-items: center;
     justify-content: flex-start;
     gap: 12px;
 
+    .batchRow {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+
+      .batchLabel {
+        color: var(--el-text-color-secondary);
+        font-size: 13px;
+        white-space: nowrap;
+      }
+
+      .batchSelect {
+        width: 90px;
+
+        &:deep(.el-select__wrapper) {
+          padding: 0 8px;
+        }
+      }
+    }
     .modelSelect {
       width: 190px;
       min-width: 0;
