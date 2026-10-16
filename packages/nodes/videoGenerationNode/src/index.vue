@@ -68,12 +68,6 @@
         </div>
         <promptInput v-model="displayPromptModel" v-model:text="displayPrompt" :references="referenceMentions" expandable />
         <div class="promptFooter">
-          <div class="batchRow">
-            <span class="batchLabel">生成批次</span>
-            <el-select v-model="batchCountModel" class="batchSelect" allowCreate filterable defaultFirstOption :disabled="generating || deleting" placeholder="1" aria-label="生成批次" placement="top-start">
-              <el-option v-for="count in [1, 2, 3, 4, 5]" :key="count" :label="String(count)" :value="count" />
-            </el-select>
-          </div>
           <el-select
             v-model="data.model"
             class="modelSelect"
@@ -111,6 +105,12 @@
             @click="runOptimize().catch((error) => showNodeError(error, '提示词优化失败'))">
             优化提示词
           </el-button>
+          <div class="batchRow">
+            <span class="batchLabel">生成批次</span>
+            <el-select v-model="batchCountModel" class="batchSelect" allowCreate filterable defaultFirstOption :disabled="generating || deleting" placeholder="1" aria-label="生成批次" placement="top-start">
+              <el-option v-for="count in [1, 2, 3, 4, 5]" :key="count" :label="String(count)" :value="count" />
+            </el-select>
+          </div>
           <el-button
             class="sendButton"
             :icon="generating ? IconPlayerStop : IconArrowUp"
