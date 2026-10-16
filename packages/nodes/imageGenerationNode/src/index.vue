@@ -54,13 +54,13 @@
           @remove="removeReference" />
         <promptInput v-if="editor?.mode === 'inpaint'" v-model="data.inpaintPromptModel" v-model:text="data.inpaintPrompt" :references="referenceMentions" expandable />
         <promptInput v-else v-model="data.promptModel" v-model:text="data.prompt" :references="referenceMentions" expandable />
-        <div v-if="editor?.mode !== 'inpaint'" class="batchRow">
-          <span class="batchLabel">生成批次</span>
-          <el-select v-model="batchCountModel" class="batchSelect" allowCreate filterable defaultFirstOption :disabled="generating || deleting" placeholder="1" aria-label="生成批次" placement="top-start">
-            <el-option v-for="count in [1, 2, 3, 4, 5]" :key="count" :label="String(count)" :value="count" />
-          </el-select>
-        </div>
         <div class="promptFooter">
+          <div v-if="editor?.mode !== 'inpaint'" class="batchRow">
+            <span class="batchLabel">生成批次</span>
+            <el-select v-model="batchCountModel" class="batchSelect" allowCreate filterable defaultFirstOption :disabled="generating || deleting" placeholder="1" aria-label="生成批次" placement="top-start">
+              <el-option v-for="count in [1, 2, 3, 4, 5]" :key="count" :label="String(count)" :value="count" />
+            </el-select>
+          </div>
           <el-select
             v-if="editor?.mode !== 'inpaint'"
             v-model="data.model"
@@ -561,31 +561,31 @@ nodeTools.register({
 
 .promptCard {
   .inpaintInfo { margin-bottom: 8px; }
-  .batchRow {
-    display: flex;
-    align-items: center;
-    gap: 8px;
-    margin-top: 10px;
-
-    .batchLabel {
-      color: var(--el-text-color-secondary);
-      font-size: 13px;
-    }
-
-    .batchSelect {
-      width: 90px;
-
-      &:deep(.el-select__wrapper) {
-        padding: 0 8px;
-      }
-    }
-  }
   .promptFooter {
     display: flex;
     align-items: center;
     justify-content: flex-start;
     gap: 12px;
 
+    .batchRow {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+
+      .batchLabel {
+        color: var(--el-text-color-secondary);
+        font-size: 13px;
+        white-space: nowrap;
+      }
+
+      .batchSelect {
+        width: 90px;
+
+        &:deep(.el-select__wrapper) {
+          padding: 0 8px;
+        }
+      }
+    }
     .modelSelect {
       width: 190px;
       min-width: 0;
