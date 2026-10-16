@@ -70,6 +70,7 @@ function closeDialog() {
   // 全部完成后关闭即清理状态，右上角图标消失；设置阶段关闭只隐藏弹窗。
   if (store.active) store.reset();
   else store.dialogVisible = false;
+  refreshQueueOverlays();
 }
 
 function onOpenRequest() {
@@ -85,6 +86,8 @@ onScopeDispose(() => {
 
 function refreshQueueOverlays() {
   for (const key of [...queueMap.keys()]) queueMap.delete(key);
+  // ACT: 遮罩只在执行中显示；设置阶段拖动排序也不画遮罩。
+  if (!store.active) return;
   const total = store.items.length;
   store.items.forEach((item, index) => {
     if (item.status === "queued") queueMap.set(item.nodeId, { position: index + 1, total });
@@ -151,7 +154,8 @@ function cancelBatch() {
 }
 
 function onClosed() {
-  // 关闭弹窗不中断执行；正在执行的节点继续，排队遮罩由引擎维护。
+  // 关闭弹窗不中断执行；正在执行的节点继续，排队遮罩由引擎维护；未开始时清掉拖动产生的遮罩。
+  refreshQueueOverlays();
 }
 
 function onDragStart(index: number) {
