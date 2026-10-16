@@ -47,6 +47,9 @@
       <div v-if="optimizeDone" class="optimizeDoneMask" @click.stop="optimizeDone = false" role="button" aria-label="优化已完成，点击关闭">
         <span class="optimizeDoneText">优化已完成</span>
       </div>
+      <div v-if="generateDone" class="generateDoneMask" @click.stop="generateDone = false" role="button" aria-label="生成已完成，点击关闭">
+        <span class="generateDoneText">生成已完成</span>
+      </div>
       <div v-if="batchQueue" class="batchQueueMask" role="button" aria-label="批量排队，点击打开批量执行" @click.stop="openBatchDialog">
         <span>批量排队 {{ batchQueue.position }}/{{ batchQueue.total }}</span>
       </div>
@@ -187,6 +190,7 @@ const actualVideoHeight = ref(0);
 let generationController: AbortController | undefined;
 const optimizing = ref(false);
 const optimizeDone = ref(false);
+const generateDone = ref(false);
 const showOptimized = ref(!!data.value.optimizedPrompt.trim());
 const hasOptimized = computed(() => !!data.value.optimizedPrompt.trim());
 // 输入框显示原始或优化后：切到哪边，生成就用哪边
@@ -437,6 +441,7 @@ async function startGeneration() {
   const total = batchCountModel.value;
   batchTotal.value = total;
   batchCurrent.value = 0;
+  generateDone.value = false;
   generation = generationState.run(async () => {
     const { directory } = await workspace.list();
     for (let index = 0; index < total; index++) {
@@ -453,6 +458,7 @@ async function startGeneration() {
       outputs.value.video = { dataType: "VIDEO", value: { url: result.path, mimeType: result.mimeType } };
     }
   })
+    .then(() => { generateDone.value = true; })
     .catch((error) => showNodeError(error, "视频生成失败"))
     .finally(() => {
       generationController = undefined;
@@ -634,6 +640,23 @@ nodeTools.register({
     cursor: pointer;
     z-index: 3;
     .optimizeDoneText {
+      padding: 8px 20px;
+      border-radius: 8px;
+      background: var(--el-color-success);
+      color: #fff;
+      font-size: 14px;
+    }
+  }
+
+  .generateDoneMask {
+    position: absolute;
+    inset: 0;
+    display: grid;
+    place-items: center;
+    background: #0009;
+    cursor: pointer;
+    z-index: 3;
+    .generateDoneText {
       padding: 8px 20px;
       border-radius: 8px;
       background: var(--el-color-success);
