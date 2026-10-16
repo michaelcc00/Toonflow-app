@@ -22,6 +22,14 @@ function getNodeDirectory(nodeId: string) {
   return `assets/${nodeId}`;
 }
 
+// ACT: 节点目录文件名用 yyyyMMddHHmmss + 三位随机数，替代 uuid，便于按时间识别和排序。
+function timestampedFileName(extension: string) {
+  const now = new Date();
+  const parts = [now.getFullYear(), now.getMonth() + 1, now.getDate(), now.getHours(), now.getMinutes(), now.getSeconds()];
+  const stamp = parts.map((value, index) => index === 0 ? String(value) : String(value).padStart(2, "0")).join("");
+  return `${stamp}${String(Math.floor(Math.random() * 1000)).padStart(3, "0")}${extension}`;
+}
+
 export async function uploadNodeFile(files: WorkspaceFiles, nodeId: string, file: File) {
   const directory = getNodeDirectory(nodeId);
   for (const path of ["assets", directory]) {
@@ -30,7 +38,7 @@ export async function uploadNodeFile(files: WorkspaceFiles, nodeId: string, file
     });
   }
   const extension = file.name.match(/\.[a-zA-Z0-9]{1,10}$/)?.[0].toLowerCase() ?? "";
-  const path = `${directory}/${crypto.randomUUID()}${extension}`;
+  const path = `${directory}/${timestampedFileName(extension)}`;
   await files.write(path, file, true);
   return path;
 }
