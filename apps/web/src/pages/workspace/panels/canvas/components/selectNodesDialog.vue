@@ -54,12 +54,12 @@
           </div>
           <el-text v-if="!selectedNodes.length" type="info" size="small">点击上方节点加入选择</el-text>
         </div>
-        <el-text type="info" size="small">确定后按顺序把线连接到所选节点的右边</el-text>
+        <el-text type="info" size="small">确定后按顺序把线连接到所选节点的右边；取消勾选已连线的节点会断开连线</el-text>
       </div>
     </div>
     <template #footer>
       <el-button @click="visible = false">取消</el-button>
-      <el-button type="primary" :disabled="!selectedNodes.length" @click="confirm">确定</el-button>
+      <el-button type="primary" @click="confirm">确定</el-button>
     </template>
   </el-dialog>
   <el-dialog
@@ -102,11 +102,19 @@ const dragIndex = ref(-1);
 const candidateNodes = computed(() => {
   const nodes = flow.getNodes.value.filter(node => {
     if (node.hidden || node.type === "canvasGroup" || node.id === props.pendingNodeId) return false;
-    // ACT: 已连到该端口的节点不再列出，避免重复建边。
-    return !flow.getEdges.value.some(edge =>
-      edge.source === node.id && edge.target === props.pendingNodeId && edge.targetHandle === props.pendingHandleId);
+    return true;
   });
   return [...nodes].sort((left, right) => String(left.data?.label ?? left.label ?? left.id).localeCompare(String(right.data?.label ?? right.label ?? right.id)));
+});
+// ACT: 已连到该端口的节点，按连线（边数组）顺序排列。
+const connectedNodeIds = computed(() => {
+  const seen = new Map<string, number>();
+  flow.getEdges.value.forEach((edge, index) => {
+    if (edge.target === props.pendingNodeId && edge.targetHandle === props.pendingHandleId && !seen.has(edge.source)) {
+      seen.set(edge.source, index);
+    }
+  });
+  return [...seen.entries()].sort((left, right) => left[1] - right[1]).map(([nodeId]) => nodeId);
 });
 const categories = computed(() => {
   const map = new Map<string, { type: string; label: string; count: number }>();
@@ -162,7 +170,14 @@ function onPreview(node: GraphNode, url: string, kind: "image" | "video") {
 function reset() {
   search.value = "";
   activeCategory.value = "all";
+  // ACT: 已连线的节点预选，按连线顺序排列。
+  const byId = new Map<string, GraphNode>();
+  for (const node of candidateNodes.value) byId.set(node.id, node);
   selectedNodes.value = [];
+  for (const nodeId of connectedNodeIds.value) {
+    const node = byId.get(nodeId);
+    if (node) selectedNodes.value.push({ id: node.id, label: nodeLabel(node) });
+  }
   previewVisible.value = false;
 }
 function confirm() {
