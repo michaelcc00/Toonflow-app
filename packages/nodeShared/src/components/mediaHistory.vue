@@ -20,8 +20,9 @@
               @keydown.enter="selected = item"
               @keydown.space.prevent="selected = item">
               <span class="fileName">{{ item.url.split('/').at(-1) }}</span>
-              <span v-if="item.url === current?.url.replaceAll('\\', '/')" class="currentLabel">当前结果</span>
+              <span v-if="isCurrent(item)" class="currentLabel">当前结果</span>
               <el-button
+                v-if="!isCurrent(item)"
                 class="deleteBtn"
                 text
                 type="danger"
@@ -51,7 +52,7 @@
 <script setup lang="ts">
 import { computed, ref, watch } from "vue";
 import { useNode } from "@vue-flow/core";
-import { ElAlert, ElButton, ElDialog, ElEmpty, ElLoading, ElMessage, ElPagination } from "element-plus";
+import { ElAlert, ElButton, ElDialog, ElEmpty, ElLoading, ElMessage, ElMessageBox, ElPagination } from "element-plus";
 import { IconHistory, IconTrash } from "@tabler/icons-vue";
 import { useNodeFiles } from "@toonflow/nodes-scaffold/workspaceFiles";
 import type { NodeMediaValue } from "@toonflow/nodes-scaffold/values";
@@ -129,8 +130,22 @@ function selectOutput() {
   visible.value = false;
 }
 
+function isCurrent(item: NodeMediaValue) {
+  return !!props.current && item.url === props.current.url.replaceAll("\\", "/");
+}
+
 async function deleteItem(item: NodeMediaValue) {
-  if (deletingUrl.value) return;
+  if (deletingUrl.value || isCurrent(item)) return;
+  try {
+    await ElMessageBox.confirm(`确定删除 ${item.url.split("/").at(-1)} 吗？删除后无法恢复。`, "删除历史文件", {
+      confirmButtonText: "删除",
+      cancelButtonText: "取消",
+      type: "warning",
+      confirmButtonClass: "el-button--danger",
+    });
+  } catch {
+    return;
+  }
   deletingUrl.value = item.url;
   try {
     await files.getWorkspaceFiles().remove(item.url);
