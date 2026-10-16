@@ -24,6 +24,7 @@
       <el-button text :icon="IconCopyPlus" :disabled="busy || disabled" @click="operate('duplicate')">创建副本</el-button>
       <el-button text :icon="IconBoxMultiple" :disabled="busy || disabled" @click="operate('group')">打组</el-button>
       <el-button text :icon="IconDeselect" :disabled="busy || disabled || !hasGroup" @click="operate('ungroup')">解组</el-button>
+      <el-button text :icon="IconPlayerPlay" :disabled="busy || disabled || !hasGeneratableNodes" @click="openBatchExecute">批量执行</el-button>
     </div>
   </el-card>
 </template>
@@ -33,10 +34,11 @@ import { computed, nextTick, ref } from "vue";
 import { getRectOfNodes, useVueFlow, type GraphNode, type Node, type XYPosition } from "@vue-flow/core";
 import { ElButton, ElCard, ElMessage } from "element-plus";
 import {
-  IconCopyPlus, IconBoxMultiple, IconDeselect,
+  IconCopyPlus, IconBoxMultiple, IconDeselect, IconPlayerPlay,
   IconLayoutGrid, IconLayoutColumns, IconLayoutRows,
 } from "@tabler/icons-vue";
 import { useNodeEvent } from "@toonflow/nodes-scaffold/nodeEvent";
+import { useBatchExecutionStore, type BatchItem } from "@/stores/batchExecution";
 import { finishGroupDrag, getSelectionRoots, getSelectionTree } from "../selectionNodes";
 import { arrangeSelection, type ArrangeSelectionMode } from "../arrangeSelection";
 
@@ -59,6 +61,30 @@ const canArrangeSelection = computed(() => !busy.value && !props.disabled && sel
     && Number.isFinite(node.dimensions.width) && node.dimensions.width > 0
     && Number.isFinite(node.dimensions.height) && node.dimensions.height > 0));
 const hasGroup = computed(() => flow.getSelectedNodes.value.some(node => node.type === "canvasGroup"));
+const batchExecution = useBatchExecutionStore();
+const generatableNodes = computed(() => {
+  const seen = new Set<string>();
+  return flow.getSelectedNodes.value.filter(node => {
+    if (seen.has(node.id) || (node.type !== "remote-imageGenerationNode" && node.type !== "remote-videoGenerationNode")) return false;
+    seen.add(node.id);
+    return true;
+  });
+});
+const hasGeneratableNodes = computed(() => generatableNodes.value.length > 0);
+
+function openBatchExecute() {
+  if (batchExecution.active) {
+    batchExecution.dialogVisible = true;
+    return;
+  }
+  const items: BatchItem[] = generatableNodes.value.map(node => ({
+    nodeId: node.id,
+    label: String(node.data?.label ?? node.label ?? node.id),
+    nodeType: node.type === "remote-imageGenerationNode" ? "image" : "video",
+    status: "queued",
+  }));
+  batchExecution.openDialog(items);
+}
 const visible = computed(() => !props.disabled && !flow.userSelectionActive.value && flow.getSelectedNodes.value.length > 0
   && (flow.nodesSelectionActive.value || hasGroup.value));
 const toolbarStyle = computed(() => {
