@@ -8,6 +8,12 @@
     :closeOnClickModal="false"
     @closed="onClosed">
     <div class="batchExecute">
+      <div v-if="store.active" class="batchRunningBanner" aria-live="polite">
+        <span class="runningDot" aria-hidden="true" />
+        <span class="runningText">正在执行中</span>
+        <span class="runningProgress">已完成 {{ store.doneCount }}/{{ store.total }}</span>
+        <el-progress class="runningBar" :percentage="Math.round(store.total ? (store.doneCount / store.total) * 100 : 0)" :showText="false" />
+      </div>
       <div class="batchList">
         <div
           v-for="(item, index) in store.items"
@@ -43,11 +49,11 @@
 </template>
 
 <script setup lang="ts">
-import { ref } from "vue";
+import { onMounted, onScopeDispose, ref } from "vue";
 import { useVueFlow } from "@vue-flow/core";
-import { ElButton, ElDialog, ElEmpty, ElInputNumber, ElTag, ElText } from "element-plus";
+import { ElButton, ElDialog, ElEmpty, ElInputNumber, ElProgress, ElTag, ElText } from "element-plus";
 import { IconGripVertical, IconTrash } from "@tabler/icons-vue";
-import { getBatchQueueMap } from "@toonflow/nodes-scaffold/runtime";
+import { batchDialogEvent, getBatchQueueMap } from "@toonflow/nodes-scaffold/runtime";
 import { useNodeToolsContext } from "@toonflow/nodes-scaffold/nodeTools";
 import { useBatchExecutionStore, type BatchItem } from "@/stores/batchExecution";
 
@@ -58,6 +64,17 @@ const queueMap = getBatchQueueMap(flow);
 const dragIndex = ref(-1);
 let cancelled = false;
 const statusTexts = { queued: "排队中", running: "执行中", done: "已完成", failed: "失败", cancelled: "已取消" } as const;
+
+function onOpenRequest() {
+  store.dialogVisible = true;
+}
+
+onMounted(() => {
+  window.addEventListener(batchDialogEvent, onOpenRequest);
+});
+onScopeDispose(() => {
+  window.removeEventListener(batchDialogEvent, onOpenRequest);
+});
 
 function refreshQueueOverlays() {
   for (const key of [...queueMap.keys()]) queueMap.delete(key);
@@ -111,6 +128,8 @@ async function startBatch() {
   cancelled = false;
   store.items.forEach(item => { item.status = "queued"; });
   refreshQueueOverlays();
+  // ACT: 确定后关闭弹窗，执行在后台继续；右上角图标可重新打开。
+  store.dialogVisible = false;
   const workerCount = Math.min(Math.max(1, Math.floor(store.concurrency) || 1), store.items.length);
   await Promise.allSettled(Array.from({ length: workerCount }, () => runWorker()));
   refreshQueueOverlays();
@@ -154,6 +173,31 @@ function onDrop() {
   display: flex;
   flex-direction: column;
   gap: 16px;
+
+  .batchRunningBanner {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 10px 12px;
+    border-radius: 8px;
+    background: var(--el-color-primary-light-9);
+    color: var(--el-color-primary);
+    font-size: 14px;
+    font-weight: 600;
+
+    .runningDot {
+      flex-shrink: 0;
+      width: 8px;
+      height: 8px;
+      border-radius: 50%;
+      background: var(--el-color-primary);
+      animation: batchPulse 1.2s ease-in-out infinite;
+    }
+
+    .runningText { flex-shrink: 0; }
+    .runningProgress { flex-shrink: 0; margin-left: auto; font-weight: 400; }
+    .runningBar { flex: 1; min-width: 60px; }
+  }
 
   .batchList {
     display: flex;
@@ -215,5 +259,10 @@ function onDrop() {
 
     .settingsLabel { font-size: 14px; }
   }
+}
+
+@keyframes batchPulse {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.3; }
 }
 </style>
