@@ -289,9 +289,11 @@ async function deleteItem(item: NodeMediaValue) {
 }
 
 .historyViewerDialog {
-  .el-dialog__header { display: none; }
-  .el-dialog__body { height: 100%; padding: 0; background: rgba(0, 0, 0, 0.92); }
-  .historyViewer { display: flex; flex-direction: column; height: 100%; color: #fff; }
+  // ACT: el-dialog 的 header/body 是 el-dialog 内部渲染的，scoped 样式必须用 :deep 才能命中；否则白字按钮落在白底上，看起来像没有箭头和按钮。
+  :deep(.el-dialog) { background: rgba(0, 0, 0, 0.92); }
+  :deep(.el-dialog__header) { display: none; }
+  :deep(.el-dialog__body) { height: 100%; padding: 0; background: rgba(0, 0, 0, 0.92); }
+  .historyViewer { display: flex; flex-direction: column; height: 100%; color: #fff; background: rgba(0, 0, 0, 0.92); }
 
   .viewerTop {
     display: flex;
