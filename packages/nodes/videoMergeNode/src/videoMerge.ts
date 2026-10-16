@@ -7,16 +7,25 @@ function normalizePath(path: string) {
   return path.split(/[\\/]+/).filter(part => part && part !== ".").join("/");
 }
 
-function runCommand(command: BrowserFfmpegCommand, signal?: AbortSignal) {
+function runConcat(command: BrowserFfmpegCommand, output: string, signal?: AbortSignal) {
   signal?.throwIfAborted();
-  const cancel = () => command.kill();
-  signal?.addEventListener("abort", cancel, { once: true });
   return new Promise<void>((resolve, reject) => {
+    const cancel = () => command.kill();
+    signal?.addEventListener("abort", cancel, { once: true });
+    const cleanup = () => signal?.removeEventListener("abort", cancel);
     command.on("start", () => { if (signal?.aborted) command.kill(); });
-    command.on("error", error => reject(signal?.aborted ? signal.reason : error));
-    command.on("end", () => signal?.aborted ? reject(signal.reason) : resolve());
-    command.run();
-  }).finally(() => signal?.removeEventListener("abort", cancel));
+    command.on("error", error => {
+      cleanup();
+      reject(signal?.aborted ? signal.reason : error);
+    });
+    command.on("end", () => {
+      cleanup();
+      if (signal?.aborted) reject(signal.reason);
+      else resolve();
+    });
+    // ACT: concat 是 run 方法，调用即开始执行；不能再调 run()，否则二次启动报错。
+    command.concat(output);
+  });
 }
 
 export function mergedFileName() {
@@ -36,6 +45,5 @@ export async function mergeVideos(ffmpeg: BrowserFfmpegFactory, sources: string[
   if (inputs.includes(output)) throw new Error("输出文件不能覆盖原视频");
   const command = ffmpeg(inputs[0]);
   for (const source of inputs.slice(1)) command.input(source);
-  command.concat(output);
-  await runCommand(command, signal);
+  await runConcat(command, output, signal);
 }
