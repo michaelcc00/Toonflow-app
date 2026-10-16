@@ -32,6 +32,15 @@
         </span>
       </template>
     </el-segmented>
+    <el-tooltip v-if="batchExecution.active" content="批量执行" placement="bottom" :showArrow="false" :hideAfter="0">
+      <el-button
+        class="batchStatusButton"
+        aria-label="批量执行"
+        @click="batchExecution.dialogVisible = true">
+        <icon-player-play :size="18" aria-hidden="true" />
+        <span>{{ batchExecution.doneCount }}/{{ batchExecution.total }}</span>
+      </el-button>
+    </el-tooltip>
     <el-tooltip v-if="!agentVisible" content="Toonflow Agent" placement="bottom" :showArrow="false" :hideAfter="0">
       <el-button
         class="agentButton"
@@ -50,10 +59,11 @@
 import { computed, defineAsyncComponent, nextTick, onMounted, onScopeDispose, provide, ref, shallowRef, watch, type ComponentPublicInstance } from "vue";
 import { onBeforeRouteLeave } from "vue-router";
 import axios from "axios";
-import { IconLayoutDashboard, IconFileText } from "@tabler/icons-vue";
+import { IconLayoutDashboard, IconFileText, IconPlayerPlay } from "@tabler/icons-vue";
 import { ElMessage, ElMessageBox } from "element-plus";
 import settings from "@/components/settings/index.vue";
 import { useWorkspaceStore } from "@/stores/workspace";
+import { useBatchExecutionStore } from "@/stores/batchExecution";
 import { registerWorkspaceControl, waitForControlValue } from "@/lib/mcpControl";
 import anonymousData from "@/lib/anonymousData";
 import canvasPanel from "./panels/canvas/canvasHost.vue";
@@ -71,6 +81,7 @@ const panelOptions = [
   { label: "文档", value: "document", icon: IconFileText },
 ];
 const agentVisible = ref(true);
+const batchExecution = useBatchExecutionStore();
 const agentWidth = ref(0);
 const settingsVisible = ref(false);
 const canvasPanelRef = ref<InstanceType<typeof canvasPanel>>();
@@ -274,6 +285,22 @@ function saveDocumentNode(directory: string, canvasPath: string, nodeId: string,
       padding: 0 3px;
       line-height: 24px;
     }
+  }
+
+  .batchStatusButton {
+    position: absolute;
+    top: 15px;
+    right: 67px;
+    z-index: 5;
+    height: 44px;
+    padding: 0 12px;
+    border: 1px solid var(--el-border-color-light);
+    border-radius: 22px;
+    background: var(--el-bg-color-overlay);
+    color: var(--el-text-color-primary);
+    font-size: 13px;
+
+    &:hover { border-color: var(--el-color-primary); color: var(--el-color-primary); }
   }
 
   .agentButton {
