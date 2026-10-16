@@ -44,6 +44,9 @@
       <div v-if="batchQueue" class="batchQueueMask" role="button" aria-label="批量排队，点击打开批量执行" @click.stop="openBatchDialog">
         <span>批量排队 {{ batchQueue.position }}/{{ batchQueue.total }}</span>
       </div>
+      <div v-if="generateDone" class="generateDoneMask" @click.stop="generateDone = false" role="button" aria-label="生成已完成，点击关闭">
+        <span class="generateDoneText">生成已完成</span>
+      </div>
     </div>
     <template v-if="!isMarkMode" #bottom>
       <div v-if="lightingVisible" ref="lightingTarget" />
@@ -191,6 +194,7 @@ let generationController: AbortController | undefined;
 const generationState = useNodeGeneration(outputs, () => generationController?.abort());
 const { generating } = generationState;
 const batchQueue = useBatchQueue();
+const generateDone = ref(false);
 let generation: Promise<void> | undefined;
 const batchCurrent = ref(0);
 const batchTotal = ref(0);
@@ -364,6 +368,7 @@ async function startGeneration() {
   const total = inpaintData ? 1 : batchCountModel.value;
   batchTotal.value = total;
   batchCurrent.value = 0;
+  generateDone.value = false;
   generation = generationState.run(async () => {
     const { directory } = await workspace.list();
     for (let index = 0; index < total; index++) {
@@ -378,6 +383,7 @@ async function startGeneration() {
       outputs.value.image = { dataType: "IMAGE", value: { url: result.path, mimeType: result.mimeType } };
     }
   })
+    .then(() => { generateDone.value = true; })
     .catch((error) => showNodeError(error, "图片生成失败"))
     .finally(() => {
       generationController = undefined;
@@ -553,6 +559,23 @@ nodeTools.register({
     color: #fff;
     font-size: 14px;
     cursor: pointer;
+  }
+
+  .generateDoneMask {
+    position: absolute;
+    inset: 0;
+    display: grid;
+    place-items: center;
+    background: #0009;
+    cursor: pointer;
+    z-index: 3;
+    .generateDoneText {
+      padding: 8px 20px;
+      border-radius: 8px;
+      background: var(--el-color-success);
+      color: #fff;
+      font-size: 14px;
+    }
   }
 
   .inpaintGuide {
