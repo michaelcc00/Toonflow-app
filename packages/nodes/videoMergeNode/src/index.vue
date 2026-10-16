@@ -125,6 +125,12 @@ async function startMerge() {
   mergeDone.value = false;
   mergeTask = generationState.run(async () => {
     const { directory } = await workspace.list();
+    // ACT: ffmpeg 不自动建输出目录，先建 assets/<节点ID>，否则报 No such file。
+    for (const path of ["assets", `assets/${id}`]) {
+      await workspace.mkdir(path).catch((error: { response?: { data?: { data?: { code?: string } } } }) => {
+        if (error.response?.data?.data?.code !== "EEXIST") throw error;
+      });
+    }
     const outputPath = `assets/${id}/${mergedFileName()}`;
     const factory = await ffmpeg(controller.signal);
     await mergeVideos(factory, sources, outputPath, controller.signal);
