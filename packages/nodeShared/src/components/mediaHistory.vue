@@ -35,7 +35,7 @@
           </div>
           <div class="historyPreview" v-loading="!!selected && !previewReady && !previewError">
             <el-alert v-if="previewError" :title="previewError" type="error" :closable="false" />
-            <img v-else-if="previewUrl && mediaType === 'image'" class="previewImage" :src="previewUrl" alt="历史图片预览，点击放大" title="点击放大" @load="previewReady = true" @error="previewError = '无法预览该图片'" @click="previewViewerVisible = true" />
+            <img v-else-if="previewUrl && mediaType === 'image'" class="previewImage" :src="previewUrl" alt="历史图片预览，点击放大" title="点击放大" @load="previewReady = true" @error="previewError = '无法预览该图片'" @click="openViewer" />
             <video v-else-if="previewUrl" :src="previewUrl" controls playsinline preload="auto" aria-label="历史视频预览" @loadeddata="previewReady = true" @error="previewError = '无法预览该视频'" />
           </div>
         </div>
@@ -47,14 +47,33 @@
       <el-button type="primary" :disabled="disabled || loading || !selected || !previewUrl || !previewReady || !!previewError" @click="selectOutput">设为当前结果</el-button>
     </template>
   </el-dialog>
-  <el-image-viewer v-if="previewViewerVisible && previewUrl && mediaType === 'image'" :urlList="[previewUrl]" teleported @close="previewViewerVisible = false" />
+  <el-dialog v-model="viewerVisible" fullscreen appendToBody destroyOnClose :showClose="false" class="historyViewerDialog">
+    <div class="historyViewer">
+      <div class="viewerTop">
+        <span class="viewerName">{{ viewerItem?.url.split("/").at(-1) }}</span>
+        <span class="viewerIndex">{{ viewerIndex + 1 }} / {{ items.length }}</span>
+        <el-button text :icon="IconZoomOut" aria-label="缩小" @click="viewerZoom = Math.max(0.2, viewerZoom - 0.25)" />
+        <el-button text :icon="IconZoomIn" aria-label="放大" @click="viewerZoom = Math.min(5, viewerZoom + 0.25)" />
+        <el-button text :icon="IconX" aria-label="关闭预览" @click="viewerVisible = false" />
+      </div>
+      <div class="viewerBody" @wheel.prevent="viewerZoom = Math.min(5, Math.max(0.2, viewerZoom + ($event.deltaY < 0 ? 0.25 : -0.25)))">
+        <el-button class="navArrow" circle :icon="IconChevronLeft" :disabled="viewerIndex <= 0" aria-label="上一张" @click="viewerPrev" />
+        <img v-if="viewerUrl" class="viewerImage" :src="viewerUrl" :style="{ transform: `scale(${viewerZoom})` }" alt="历史图片放大预览" draggable="false" />
+        <el-button class="navArrow" circle :icon="IconChevronRight" :disabled="viewerIndex >= items.length - 1" aria-label="下一张" @click="viewerNext" />
+      </div>
+      <div class="viewerFooter">
+        <el-button @click="viewerVisible = false">关闭</el-button>
+        <el-button type="primary" :disabled="disabled || !viewerItem" @click="viewerSelectOutput">设为当前结果</el-button>
+      </div>
+    </div>
+  </el-dialog>
 </template>
 
 <script setup lang="ts">
 import { computed, ref, watch } from "vue";
 import { useNode } from "@vue-flow/core";
-import { ElAlert, ElButton, ElDialog, ElEmpty, ElImageViewer, ElLoading, ElMessage, ElMessageBox, ElPagination } from "element-plus";
-import { IconHistory, IconTrash } from "@tabler/icons-vue";
+import { ElAlert, ElButton, ElDialog, ElEmpty, ElLoading, ElMessage, ElMessageBox, ElPagination } from "element-plus";
+import { IconChevronLeft, IconChevronRight, IconHistory, IconTrash, IconX, IconZoomIn, IconZoomOut } from "@tabler/icons-vue";
 import { useNodeFiles } from "@toonflow/nodes-scaffold/workspaceFiles";
 import type { NodeMediaValue } from "@toonflow/nodes-scaffold/values";
 
@@ -73,7 +92,10 @@ const selected = ref<NodeMediaValue>();
 const page = ref(1);
 const pageSize = 20;
 const deletingUrl = ref("");
-const previewViewerVisible = ref(false);
+const viewerVisible = ref(false);
+const viewerItem = ref<NodeMediaValue>();
+const viewerZoom = ref(1);
+const viewerIndex = computed(() => Math.max(0, items.value.findIndex(item => item.url === viewerItem.value?.url)));
 const pageItems = computed(() => items.value.slice((page.value - 1) * pageSize, page.value * pageSize));
 const mimeTypes: Record<string, string> = {
   png: "image/png", jpg: "image/jpeg", jpeg: "image/jpeg", webp: "image/webp", gif: "image/gif",
@@ -84,7 +106,47 @@ const previewFile = computed(() => visible.value ? selected.value : undefined);
 watch(previewFile, () => { previewError.value = ""; }, { flush: "sync" });
 // ACT: 目录列表仅保存路径，每页显示 20 条，只读取选中文件；海量目录需服务端分页时再扩展 list。
 const previewUrl = files.useFileUrl(previewFile, () => { previewError.value = "历史文件读取失败，文件可能已被移动或删除"; });
+const viewerUrl = files.useFileUrl(viewerItem, () => { viewerVisible.value = false; });
 watch([previewFile, previewUrl], () => { previewReady.value = false; }, { flush: "sync" });
+
+function openViewer() {
+  viewerItem.value = selected.value;
+  viewerZoom.value = 1;
+  viewerVisible.value = true;
+}
+
+function viewerPrev() {
+  if (viewerIndex.value > 0) {
+    viewerItem.value = items.value[viewerIndex.value - 1];
+    viewerZoom.value = 1;
+  }
+}
+
+function viewerNext() {
+  if (viewerIndex.value < items.value.length - 1) {
+    viewerItem.value = items.value[viewerIndex.value + 1];
+    viewerZoom.value = 1;
+  }
+}
+
+function viewerSelectOutput() {
+  if (!viewerItem.value || props.disabled) return;
+  // ACT: 预览层已加载出这张图，直接提交，不走历史弹窗的 previewReady 检查（切图后 previewUrl 还没重新加载完）。
+  emit("select", { ...viewerItem.value });
+  viewerVisible.value = false;
+  visible.value = false;
+}
+
+watch(viewerVisible, open => {
+  if (!open) return;
+  const onKey = (event: KeyboardEvent) => {
+    if (event.key === "ArrowLeft") viewerPrev();
+    else if (event.key === "ArrowRight") viewerNext();
+    else if (event.key === "Escape") viewerVisible.value = false;
+  };
+  window.addEventListener("keydown", onKey);
+  const stop = watch(viewerVisible, open => { if (!open) { window.removeEventListener("keydown", onKey); stop(); } });
+});
 
 watch(() => props.disabled, disabled => { if (disabled) visible.value = false; });
 watch(visible, async (open, _previous, onCleanup) => {
@@ -224,5 +286,35 @@ async function deleteItem(item: NodeMediaValue) {
   }
 
   .el-pagination { justify-content: center; margin-top: 16px; }
+}
+
+.historyViewerDialog {
+  .el-dialog__header { display: none; }
+  .el-dialog__body { height: 100%; padding: 0; background: rgba(0, 0, 0, 0.92); }
+  .historyViewer { display: flex; flex-direction: column; height: 100%; color: #fff; }
+
+  .viewerTop {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 12px 16px;
+    .viewerName { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .viewerIndex { color: rgba(255, 255, 255, 0.7); font-size: 13px; }
+    .el-button { color: #fff; }
+  }
+
+  .viewerBody {
+    display: flex;
+    flex: 1;
+    align-items: center;
+    gap: 12px;
+    min-height: 0;
+    padding: 0 16px;
+    overflow: hidden;
+    .navArrow { flex-shrink: 0; color: #fff; background: rgba(255, 255, 255, 0.12); border: none; }
+    .viewerImage { flex: 1; min-width: 0; max-height: 100%; object-fit: contain; transition: transform 0.15s ease; }
+  }
+
+  .viewerFooter { display: flex; justify-content: flex-end; gap: 12px; padding: 16px; }
 }
 </style>
