@@ -7,18 +7,30 @@
       <template v-else-if="items.length">
         <div class="historyContent">
           <div class="historyList" aria-label="历史文件">
-            <button
+            <div
               v-for="item in pageItems"
               :key="item.url"
-              type="button"
               class="historyItem"
+              role="button"
+              tabindex="0"
               :class="{ selected: selected?.url === item.url }"
               :aria-pressed="selected?.url === item.url"
               :title="item.url"
-              @click="selected = item">
+              @click="selected = item"
+              @keydown.enter="selected = item"
+              @keydown.space.prevent="selected = item">
               <span class="fileName">{{ item.url.split('/').at(-1) }}</span>
               <span v-if="item.url === current?.url.replaceAll('\\', '/')" class="currentLabel">当前结果</span>
-            </button>
+              <el-button
+                class="deleteBtn"
+                text
+                type="danger"
+                size="small"
+                :icon="IconTrash"
+                :loading="deletingUrl === item.url"
+                aria-label="删除该历史文件"
+                @click.stop="deleteItem(item)" />
+            </div>
           </div>
           <div class="historyPreview" v-loading="!!selected && !previewReady && !previewError">
             <el-alert v-if="previewError" :title="previewError" type="error" :closable="false" />
@@ -39,8 +51,8 @@
 <script setup lang="ts">
 import { computed, ref, watch } from "vue";
 import { useNode } from "@vue-flow/core";
-import { ElAlert, ElButton, ElDialog, ElEmpty, ElLoading, ElPagination } from "element-plus";
-import { IconHistory } from "@tabler/icons-vue";
+import { ElAlert, ElButton, ElDialog, ElEmpty, ElLoading, ElMessage, ElPagination } from "element-plus";
+import { IconHistory, IconTrash } from "@tabler/icons-vue";
 import { useNodeFiles } from "@toonflow/nodes-scaffold/workspaceFiles";
 import type { NodeMediaValue } from "@toonflow/nodes-scaffold/values";
 
@@ -58,6 +70,7 @@ const items = ref<NodeMediaValue[]>([]);
 const selected = ref<NodeMediaValue>();
 const page = ref(1);
 const pageSize = 20;
+const deletingUrl = ref("");
 const pageItems = computed(() => items.value.slice((page.value - 1) * pageSize, page.value * pageSize));
 const mimeTypes: Record<string, string> = {
   png: "image/png", jpg: "image/jpeg", jpeg: "image/jpeg", webp: "image/webp", gif: "image/gif",
@@ -115,6 +128,27 @@ function selectOutput() {
   emit("select", { ...selected.value });
   visible.value = false;
 }
+
+async function deleteItem(item: NodeMediaValue) {
+  if (deletingUrl.value) return;
+  deletingUrl.value = item.url;
+  try {
+    await files.getWorkspaceFiles().remove(item.url);
+    items.value = items.value.filter(entry => entry.url !== item.url);
+    if (selected.value?.url === item.url) {
+      selected.value = items.value[0];
+      page.value = 1;
+    } else {
+      // ACT: 删掉末页最后一条时回到上一页，避免停留在空页。
+      page.value = Math.min(page.value, Math.max(1, Math.ceil(items.value.length / pageSize)));
+    }
+  } catch (error) {
+    const message = (error as { response?: { data?: { message?: string } } })?.response?.data?.message;
+    ElMessage.error(message || (error instanceof Error ? error.message : "删除历史文件失败"));
+  } finally {
+    deletingUrl.value = "";
+  }
+}
 </script>
 
 <style scoped lang="scss">
@@ -131,7 +165,9 @@ function selectOutput() {
       overflow: auto;
 
       .historyItem {
-        display: block;
+        display: flex;
+        align-items: center;
+        gap: 8px;
         width: 100%;
         padding: 10px;
         border: 1px solid transparent;
@@ -145,8 +181,15 @@ function selectOutput() {
         &:hover { background: var(--el-fill-color-light); }
         &.selected { border-color: var(--el-color-primary); background: var(--el-color-primary-light-9); }
         &:focus-visible { outline: 2px solid var(--el-color-primary); outline-offset: -2px; }
-        .fileName { display: block; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
-        .currentLabel { color: var(--el-color-primary); font-size: 12px; }
+        .fileName { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+        .currentLabel { flex-shrink: 0; color: var(--el-color-primary); font-size: 12px; }
+        .deleteBtn {
+          flex-shrink: 0;
+          margin-left: auto;
+          padding: 2px;
+          opacity: 0;
+        }
+        &:hover .deleteBtn, &:focus-within .deleteBtn { opacity: 1; }
       }
     }
 
