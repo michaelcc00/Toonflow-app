@@ -41,7 +41,7 @@
         <icon-photo-ai :size="48" stroke="1.25" aria-hidden="true" />
       </div>
       <div v-if="pixelResolution" class="resolutionHint" aria-hidden="true">{{ pixelResolution }}</div>
-      <div v-if="batchQueue" class="batchQueueMask" aria-live="polite">
+      <div v-if="batchQueue" class="batchQueueMask" role="button" aria-label="批量排队，点击打开批量执行" @click.stop="openBatchDialog">
         <span>批量排队 {{ batchQueue.position }}/{{ batchQueue.total }}</span>
       </div>
     </div>
@@ -124,7 +124,7 @@
 import { computed, nextTick, onMounted, onScopeDispose, ref, watch } from "vue";
 import { ElButton, ElCard, ElSelect, ElOption, ElOptionGroup, ElLoading, ElImageViewer } from "element-plus";
 import { IconCheck, IconPhotoAi, IconSparkles, IconArrowUp, IconPlayerStop, IconTransfer, IconLayoutGrid, IconBrush, IconPencil, IconSun, IconCameraRotate, IconPanoramaHorizontal, IconChevronDown } from "@tabler/icons-vue";
-import { nodeSkeleton, nodeTools, useBatchQueue, useNode, z, type NodeMediaModel, type NodeHandle } from "@toonflow/nodes-scaffold/runtime";
+import { nodeSkeleton, nodeTools, openBatchDialog, useBatchQueue, useNode, z, type NodeMediaModel, type NodeHandle } from "@toonflow/nodes-scaffold/runtime";
 import { groupNodeModels } from "@toonflow/node-shared/groupNodeModels";
 import { showNodeError } from "@toonflow/node-shared/showNodeError";
 import { useNodeGeneration } from "@toonflow/node-shared/useNodeGeneration";
@@ -552,7 +552,7 @@ nodeTools.register({
     background: rgb(0 0 0 / 0.55);
     color: #fff;
     font-size: 14px;
-    pointer-events: none;
+    cursor: pointer;
   }
 
   .inpaintGuide {
