@@ -92,6 +92,7 @@
         :batchHistory="canvasHistory.batch"
         :getSignal="() => canvasController.signal"
         :disabled="!canvasId || !project?.directory" />
+      <batchExecuteDialog />
       <nodeSearch ref="nodeSearchRef" :disabled="!active || settingsVisible || !canvasId || !project?.directory" />
     </vue-flow>
     <teleport to="body">
@@ -158,6 +159,7 @@ import canvasControls from "./components/canvasControls.vue";
 import assetLibrary from "./components/assetLibrary.vue";
 import groupNode from "./components/groupNode.vue";
 import selectionToolbar from "./components/selectionToolbar.vue";
+import batchExecuteDialog from "./components/batchExecuteDialog.vue";
 import nodeSearch from "./components/nodeSearch.vue";
 import { finishGroupDrag, getSelectionTree } from "./selectionNodes";
 import type { NodeOutput } from "@toonflow/nodes-scaffold/values";
