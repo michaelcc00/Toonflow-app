@@ -16,6 +16,14 @@ const mediaExtensions: Record<string, string> = {
   "audio/flac": "flac", "audio/aac": "aac", "audio/mp4": "m4a", "audio/opus": "opus", "audio/pcm": "pcm",
 };
 
+// ACT: 生成文件名用 yyyyMMddHHmmss + 三位随机数，替代 uuid，便于按时间识别和排序。
+function generatedFileStamp() {
+  const now = new Date();
+  const parts = [now.getFullYear(), now.getMonth() + 1, now.getDate(), now.getHours(), now.getMinutes(), now.getSeconds()];
+  const stamp = parts.map((value, index) => index === 0 ? String(value) : String(value).padStart(2, "0")).join("");
+  return `${stamp}${String(Math.floor(Math.random() * 1000)).padStart(3, "0")}`;
+}
+
 function invalid(message: string): never {
   throw Object.assign(new Error(message), { status: 400 });
 }
@@ -184,7 +192,7 @@ export async function generateMedia(
       const release = lockWorkspaceFiles([output.path]);
       try {
         await mkdir(output.path, { recursive: true });
-        const file = join(outputDirectory, `${mediaType}${crypto.randomUUID()}.${mediaExtensions[mimeType]}`);
+        const file = join(outputDirectory, `${mediaType}${generatedFileStamp()}.${mediaExtensions[mimeType]}`);
         const { path } = await resolveWorkspacePath(directory, file);
         signal?.throwIfAborted();
         await writeWorkspaceFile(path, bytes, true);
