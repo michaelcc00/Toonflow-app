@@ -39,6 +39,13 @@
         <el-input-number v-model="store.concurrency" :min="1" :max="10" :disabled="store.active" aria-label="并发数量" />
         <el-text type="info" size="small">同时执行的节点数</el-text>
       </div>
+      <div class="batchSettings">
+        <span class="settingsLabel">每个节点执行批次</span>
+        <el-select v-model="store.perNodeBatch" :disabled="store.active" aria-label="每个节点执行批次" style="width: 120px">
+          <el-option v-for="n in 5" :key="n" :label="`${n}`" :value="n" />
+        </el-select>
+        <el-text type="info" size="small">批量执行时每个节点生成次数，不影响单独生成</el-text>
+      </div>
     </div>
     <template #footer>
       <el-button v-if="store.active && hasPending" @click="cancelBatch">取消</el-button>
@@ -51,7 +58,7 @@
 <script setup lang="ts">
 import { computed, onMounted, onScopeDispose, ref } from "vue";
 import { useVueFlow } from "@vue-flow/core";
-import { ElButton, ElDialog, ElEmpty, ElInputNumber, ElProgress, ElTag, ElText } from "element-plus";
+import { ElButton, ElDialog, ElEmpty, ElInputNumber, ElOption, ElProgress, ElSelect, ElTag, ElText } from "element-plus";
 import { IconGripVertical, IconTrash } from "@tabler/icons-vue";
 import { batchDialogEvent, getBatchQueueMap } from "@toonflow/nodes-scaffold/runtime";
 import { useNodeToolsContext } from "@toonflow/nodes-scaffold/nodeTools";
@@ -108,7 +115,7 @@ async function waitForNodeDone(nodeId: string) {
   }
 }
 
-async function runWorker() {
+async function runWorker(batchCount: number) {
   while (!cancelled) {
     const item: BatchItem | undefined = store.items.find(item => item.status === "queued");
     if (!item) return;
@@ -116,7 +123,7 @@ async function runWorker() {
     refreshQueueOverlays();
     try {
       try {
-        await toolsContext.call({ nodeId: item.nodeId, name: item.nodeType === "image" ? "node:generateImage" : "node:generateVideo", args: {} });
+        await toolsContext.call({ nodeId: item.nodeId, name: item.nodeType === "image" ? "node:generateImage" : "node:generateVideo", args: { batchCount } });
       } catch (error) {
         // 节点已在手动生成：不重复触发，等它跑完。
         if (!String((error as Error)?.message ?? "").includes("正在生成")) throw error;
@@ -140,8 +147,10 @@ async function startBatch() {
   refreshQueueOverlays();
   // ACT: 确定后关闭弹窗，执行在后台继续；右上角图标可重新打开。
   store.dialogVisible = false;
+  // ACT: 批量执行时每个节点按此批次生成，覆盖节点自身的批次设置；单独生成不受影响。
+  const batchCount = Math.min(5, Math.max(1, Math.floor(store.perNodeBatch) || 1));
   const workerCount = Math.min(Math.max(1, Math.floor(store.concurrency) || 1), store.items.length);
-  await Promise.allSettled(Array.from({ length: workerCount }, () => runWorker()));
+  await Promise.allSettled(Array.from({ length: workerCount }, () => runWorker(batchCount)));
   refreshQueueOverlays();
 }
 
