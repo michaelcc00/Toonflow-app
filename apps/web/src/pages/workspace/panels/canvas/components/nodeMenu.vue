@@ -90,7 +90,7 @@
 import { computed, nextTick, onBeforeUnmount, ref, shallowRef, type Component } from "vue";
 import { useVueFlow, type ConnectingHandle, type GraphNode, type HandleType } from "@vue-flow/core";
 import { isTypeCompatible, useNodeEvent, validateConnection, type NodeHandle } from "@toonflow/nodes-scaffold/runtime";
-import { ElMessage } from "element-plus";
+import { ElMessage, ElMessageBox } from "element-plus";
 import type { DropdownInstance } from "element-plus";
 import selectionHandle from "./selectionHandle.vue";
 import selectNodesDialog from "./selectNodesDialog.vue";
@@ -425,6 +425,17 @@ async function deleteSelection(selection = selectedNodes.value) {
   if (selectionBusy || deleting.value) return;
   const nodes = getSelectionTree(selection.filter(node => node.deletable !== false), flow.getNodes.value).reverse();
   const nodeIds = new Set(nodes.filter(node => node.deletable !== false).map(node => node.id));
+  if (!nodeIds.size) return;
+  try {
+    await ElMessageBox.confirm(`确定删除选中的 ${nodeIds.size} 个节点吗？删除后可通过撤销恢复。`, "删除节点", {
+      confirmButtonText: "删除",
+      cancelButtonText: "取消",
+      type: "warning",
+      confirmButtonClass: "el-button--danger",
+    });
+  } catch {
+    return;
+  }
   deleting.value = true;
   try {
     for (const node of nodes) {
