@@ -405,7 +405,7 @@ async function runOptimize() {
   }
 }
 
-async function startGeneration() {
+async function startGeneration(batchCountOverride?: number) {
   const choice = selectedModel.value;
   if (generating.value) throw new Error("视频正在生成，请等待完成");
   if (uploading.value) throw new Error("视频正在替换，请等待完成");
@@ -438,7 +438,10 @@ async function startGeneration() {
   generationController = controller;
   // ACT: 工具立即返回，任务由节点持有，停止或卸载时取消。
   // ACT: 批量时循环生成，每次写不同文件，历史里都能找到。
-  const total = batchCountModel.value;
+  // ACT: 批量执行经工具传入批次，覆盖节点自身的批次设置；手动生成不受影响。
+  const total = batchCountOverride !== undefined
+    ? Math.min(10, Math.max(1, Math.floor(batchCountOverride) || 1))
+    : batchCountModel.value;
   batchTotal.value = total;
   batchCurrent.value = 0;
   generateDone.value = false;
@@ -575,11 +578,11 @@ nodeTools.register({
 
 nodeTools.register({
   name: "generateVideo",
-  description: "启动此节点的后台视频生成，使用当前提示词、模型、模式、时长、分辨率、比例和参考素材；立即返回已开始，用 getGenerationStatus 查询完成结果，cancelGeneration 停止生成",
-  parameters: z.strictObject({}),
-  execute(_args, { signal }) {
+  description: "启动此节点的后台视频生成，使用当前提示词、模型、模式、时长、分辨率、比例和参考素材；立即返回已开始，用 getGenerationStatus 查询完成结果，cancelGeneration 停止生成；batchCount 可选，指定本次生成批次（覆盖节点自身的批次设置）",
+  parameters: z.strictObject({ batchCount: z.number().int().min(1).max(10).optional() }),
+  execute(args, { signal }) {
     signal?.throwIfAborted();
-    return startGeneration();
+    return startGeneration(args.batchCount);
   },
 });
 </script>
