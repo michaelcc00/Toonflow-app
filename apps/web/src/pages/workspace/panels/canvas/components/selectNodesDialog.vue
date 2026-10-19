@@ -98,13 +98,30 @@ const previewUrl = ref("");
 const previewKind = ref<"image" | "video">("image");
 const previewLabel = ref("");
 const dragIndex = ref(-1);
+// ACT: 记录上次在选择节点弹窗里选中并确定的时间，列表按最近使用倒序排。
+const recentUsageKey = "toonflow.selectNodes.recentUsage";
+function loadRecentUsage(): Record<string, number> {
+  try {
+    const parsed = JSON.parse(localStorage.getItem(recentUsageKey) ?? "{}");
+    return parsed && typeof parsed === "object" ? parsed : {};
+  } catch {
+    return {};
+  }
+}
+const recentUsage = ref<Record<string, number>>(loadRecentUsage());
 
 const candidateNodes = computed(() => {
   const nodes = flow.getNodes.value.filter(node => {
     if (node.hidden || node.type === "canvasGroup" || node.id === props.pendingNodeId) return false;
     return true;
   });
-  return [...nodes].sort((left, right) => String(left.data?.label ?? left.label ?? left.id).localeCompare(String(right.data?.label ?? right.label ?? right.id)));
+  const usage = recentUsage.value;
+  return [...nodes].sort((left, right) => {
+    // ACT: 最近使用过的排前面；没用过的按名称排在后面。
+    const timeDiff = (usage[right.id] ?? 0) - (usage[left.id] ?? 0);
+    if (timeDiff) return timeDiff;
+    return String(left.data?.label ?? left.label ?? left.id).localeCompare(String(right.data?.label ?? right.label ?? right.id));
+  });
 });
 // ACT: 已连到该端口的节点，按连线（边数组）顺序排列。
 const connectedNodeIds = computed(() => {
@@ -181,7 +198,21 @@ function reset() {
   previewVisible.value = false;
 }
 function confirm() {
-  emit("confirm", selectedNodes.value.map(node => node.id));
+  const ids = selectedNodes.value.map(node => node.id);
+  if (ids.length) {
+    const now = Date.now();
+    const usage: Record<string, number> = { ...recentUsage.value };
+    for (const id of ids) usage[id] = now;
+    // ACT: 只保留最近 200 条，避免 localStorage 无限增长；已删除节点的旧记录自然沉底不影响。
+    const trimmed = Object.fromEntries(Object.entries(usage).sort((left, right) => right[1] - left[1]).slice(0, 200));
+    recentUsage.value = trimmed;
+    try {
+      localStorage.setItem(recentUsageKey, JSON.stringify(trimmed));
+    } catch {
+      // 存储失败不影响选择流程。
+    }
+  }
+  emit("confirm", ids);
   visible.value = false;
 }
 
