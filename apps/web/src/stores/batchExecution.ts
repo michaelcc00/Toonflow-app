@@ -12,6 +12,7 @@ export type BatchItem = {
 export const useBatchExecutionStore = defineStore("batchExecution", () => {
   const items = ref<BatchItem[]>([]);
   const concurrency = ref(1);
+  const perNodeBatch = ref(1);
   const active = ref(false);
   const dialogVisible = ref(false);
   const running = computed(() => items.value.some(item => item.status === "running"));
@@ -36,7 +37,7 @@ export const useBatchExecutionStore = defineStore("batchExecution", () => {
   }
 
   return {
-    items, concurrency, active, dialogVisible, running, queuedCount, doneCount, total,
+    items, concurrency, perNodeBatch, active, dialogVisible, running, queuedCount, doneCount, total,
     openDialog, setStatus, reset,
   };
 });
