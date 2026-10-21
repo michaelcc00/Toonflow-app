@@ -160,7 +160,7 @@ export function useNodeAi() {
   }
 
   async function generateMedia<T extends "image" | "video" | "audio">(mediaType: T, input: NodeImageRequest | NodeVideoRequest | NodeAudioRequest, signal?: AbortSignal) {
-    return readResult<{ files: { path: string; mimeType: string; mediaType: T }[]; optimizedPrompt?: string }>(await fetch("/api/ai/media/generate", {
+    return readResult<{ files: { path: string; mimeType: string; mediaType: T }[]; optimizedPrompt?: string; providerData?: Record<string, unknown> }>(await fetch("/api/ai/media/generate", {
       method: "POST",
       headers: { "Content-Type": "application/json", "x-toonflow-workspace": "1" },
       body: JSON.stringify({ ...input, mediaType }),
