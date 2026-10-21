@@ -14,9 +14,10 @@
       <el-button :icon="IconLayersSubtract" text :disabled="!outputFile || generating || deleting || uploading || actions?.processing" @click.stop="actions?.open('separate')">分离音视频</el-button>
       <el-button :icon="IconScissors" text :disabled="!outputFile || generating || deleting || uploading || actions?.processing" @click.stop="actions?.open('trim')">截取片段</el-button>
       <el-button :icon="IconPhotoScan" text :disabled="!outputFile || generating || deleting || uploading" @click.stop="frameExtract?.open()">抽帧</el-button>
-      <mediaHistory mediaType="video" :current="outputFile" :disabled="generating || deleting || uploading" @select="outputs.video = { dataType: 'VIDEO', value: $event }" />
+      <mediaHistory mediaType="video" :current="outputFile" :marks="historyMarks" :disabled="generating || deleting || uploading" @select="outputs.video = { dataType: 'VIDEO', value: $event }" />
       <el-button :icon="IconTransfer" :loading="uploading" :disabled="generating || deleting" text title="替换视频" aria-label="替换视频" @click.stop="fileInput?.click()">替换视频</el-button>
       <input ref="fileInput" type="file" accept="video/*" hidden aria-label="选择替换视频" :disabled="generating || deleting || uploading" @change="replaceOutput" />
+      <el-button v-if="currentPassRecord" :icon="IconZoomIn" text :disabled="currentPassRecord.kind !== 'first' || generating || deleting || uploading" title="二采：用一采保存的参数放大重生成" aria-label="二采" @click.stop="secondPassVisible = true">二采</el-button>
     </template>
     <template #topRightActions>
       <el-dropdown trigger="click" placement="bottom-end" :disabled="!player?.ready || player?.capturing || generating || deleting || uploading" @command="player?.captureFrame($event)">
@@ -131,12 +132,30 @@
   </nodeSkeleton>
   <videoActions ref="actions" :file="outputFile" :src="previewUrl" :disabled="generating || deleting || uploading" />
   <frameExtractDialog ref="frameExtract" :src="previewUrl" :label="node.data.label" />
+  <el-dialog v-model="secondPassVisible" title="二采（放大重生成）" width="380px" appendToBody>
+    <div class="secondPassBody">
+      <p class="secondPassDesc">使用一采保存的提示词、参考素材和参数重新生成，只放大像素档。</p>
+      <div class="secondPassRow">
+        <span>放大倍数</span>
+        <el-input-number v-model="secondPassMultiplier" :min="1" :max="10" :step="0.5" :precision="1" :disabled="generating" aria-label="放大倍数" />
+      </div>
+      <div class="secondPassRow">
+        <span>像素档</span>
+        <span>{{ currentPassRecord?.megapixels ?? currentPassRecord?.resolution ?? "—" }} → {{ secondTargetMegapixels }}</span>
+      </div>
+      <p v-if="secondTargetMegapixels >= 1" class="secondPassNote">像素档上限为 1.0，将按上限生成。</p>
+    </div>
+    <template #footer>
+      <el-button @click="secondPassVisible = false">取消</el-button>
+      <el-button type="primary" :disabled="generating || currentPassRecord?.kind !== 'first'" @click="confirmSecondPass">开始二采</el-button>
+    </template>
+  </el-dialog>
 </template>
 
 <script setup lang="ts">
 import { computed, nextTick, onMounted, onScopeDispose, ref, watch } from "vue";
-import { ElButton, ElCard, ElSelect, ElOption, ElOptionGroup, ElLoading, ElDropdown, ElDropdownMenu, ElDropdownItem, ElSegmented } from "element-plus";
-import { IconCameraAi, IconSparkles, IconArrowUp, IconPlayerStop, IconTransfer, IconMusic, IconLayersSubtract, IconScissors, IconPhotoScan, IconPlayerSkipBack, IconPlayerSkipForward, IconWand } from "@tabler/icons-vue";
+import { ElButton, ElCard, ElSelect, ElOption, ElOptionGroup, ElLoading, ElDropdown, ElDropdownMenu, ElDropdownItem, ElSegmented, ElDialog, ElInputNumber } from "element-plus";
+import { IconCameraAi, IconSparkles, IconArrowUp, IconPlayerStop, IconTransfer, IconMusic, IconLayersSubtract, IconScissors, IconPhotoScan, IconPlayerSkipBack, IconPlayerSkipForward, IconWand, IconZoomIn } from "@tabler/icons-vue";
 import { nodeSkeleton, nodeTools, openBatchDialog, useBatchQueue, useNode, z, type NodeMediaModel, type NodeVideoRequest, type NodeHandle } from "@toonflow/nodes-scaffold/runtime";
 import { groupNodeModels } from "@toonflow/node-shared/groupNodeModels";
 import { showNodeError } from "@toonflow/node-shared/showNodeError";
@@ -163,7 +182,29 @@ const { id, node, nodeProps, nodeEvent, outputs, files, ai, updateNodeInternals 
   label: "视频生成",
 });
 type PromptModel = NonNullable<InstanceType<typeof promptInput>["$props"]["modelValue"]>;
-const data = computed(() => node.data as { prompt: string; promptModel: PromptModel; optimizedPrompt: string; optimizedPromptModel: PromptModel; model: string; duration?: number; resolution: string; ratio: string; mode: string; generateAudio: boolean; batchCount?: number });
+type PassMediaRef = { path: string; mimeType: string };
+/** 一采/二采记录：按生成文件路径保存这次生成的完整入参和供应商回传的 cache 标记，二采时原样重放、只放大像素档。 */
+type PassRecord = {
+  kind: "first" | "second";
+  providerId: string;
+  modelId: string;
+  cacheId: string;
+  prompt: string;
+  mode?: NodeVideoRequest["mode"];
+  duration?: number;
+  resolution?: string;
+  ratio?: string;
+  generateAudio?: boolean;
+  megapixels?: number;
+  images?: PassMediaRef[];
+  firstFrame?: PassMediaRef;
+  lastFrame?: PassMediaRef;
+  videos?: PassMediaRef[];
+  audios?: PassMediaRef[];
+  /** 二采记录专用：来源一采的文件路径。 */
+  sourcePath?: string;
+};
+const data = computed(() => node.data as { prompt: string; promptModel: PromptModel; optimizedPrompt: string; optimizedPromptModel: PromptModel; model: string; duration?: number; resolution: string; ratio: string; mode: string; generateAudio: boolean; batchCount?: number; passRecords?: Record<string, PassRecord> });
 data.value.prompt ??= "";
 data.value.promptModel ??= [];
 data.value.optimizedPrompt ??= "";
@@ -450,7 +491,7 @@ async function startGeneration(batchCountOverride?: number) {
     for (let index = 0; index < total; index++) {
       controller.signal.throwIfAborted();
       batchCurrent.value = index + 1;
-      const { files: [result], optimizedPrompt } = await ai.generateVideo({ ...input, directory }, controller.signal);
+      const { files: [result], optimizedPrompt, providerData } = await ai.generateVideo({ ...input, directory }, controller.signal);
       controller.signal.throwIfAborted();
       if (optimizedPrompt) {
         // 供应商返回了本次实际使用的提示词（如 LLM 优化版）：写回输入框，下次直接修改
@@ -459,6 +500,7 @@ async function startGeneration(batchCountOverride?: number) {
       }
       if (!result) throw new Error("供应商未返回视频");
       outputs.value.video = { dataType: "VIDEO", value: { url: result.path, mimeType: result.mimeType } };
+      saveFirstPassRecord(input, result.path, optimizedPrompt, providerData);
     }
   })
     .then(() => { generateDone.value = true; })
@@ -469,6 +511,132 @@ async function startGeneration(batchCountOverride?: number) {
       batchTotal.value = 0;
     });
   return { status: "generating" };
+}
+
+/** 供应商回传 zealman H3 的 cache 标记时，把本次一采的完整入参按文件路径保存，供之后二采重放。 */
+function saveFirstPassRecord(input: Omit<NodeVideoRequest, "directory">, filePath: string, optimizedPrompt: string | undefined, providerData: Record<string, unknown> | undefined) {
+  const passInfo = (providerData as { zealmanH3?: { cacheId?: unknown; pass?: unknown } } | undefined)?.zealmanH3;
+  if (!passInfo || typeof passInfo.cacheId !== "string" || !passInfo.cacheId || passInfo.pass === 2) return;
+  data.value.passRecords ??= {};
+  data.value.passRecords[filePath] = {
+    kind: "first",
+    providerId: input.providerId,
+    modelId: input.modelId,
+    cacheId: passInfo.cacheId,
+    prompt: optimizedPrompt ?? input.prompt,
+    mode: input.mode,
+    duration: input.duration,
+    resolution: input.resolution,
+    ratio: input.ratio,
+    generateAudio: input.generateAudio,
+    megapixels: Number.parseFloat(input.resolution ?? "") || undefined,
+    images: input.images,
+    firstFrame: input.firstFrame,
+    lastFrame: input.lastFrame,
+    videos: input.videos,
+    audios: input.audios,
+  };
+}
+
+/** 当前显示的视频对应的一采/二采记录（没有记录则为 undefined）。 */
+const currentPassRecord = computed(() => {
+  const url = outputFile.value?.url;
+  return url ? data.value.passRecords?.[url] : undefined;
+});
+/** 历史记录标记：二采文件显示「二采」徽标，并注明来源一采的文件名。 */
+const historyMarks = computed(() => {
+  const marks: Record<string, { badge: string; note?: string }> = {};
+  for (const [path, record] of Object.entries(data.value.passRecords ?? {})) {
+    if (record.kind !== "second") continue;
+    marks[path] = {
+      badge: "二采",
+      note: record.sourcePath ? `来自一采：${record.sourcePath.split(/[\\/]/).at(-1) ?? record.sourcePath}` : undefined,
+    };
+  }
+  return marks;
+});
+const secondPassVisible = ref(false);
+const secondPassMultiplier = ref(2);
+/** 二采目标像素档：一采像素档 × 放大倍数，上限 1.0。 */
+const secondTargetMegapixels = computed(() => {
+  const base = currentPassRecord.value?.megapixels || Number.parseFloat(currentPassRecord.value?.resolution ?? "") || 0.3;
+  const factor = Number(secondPassMultiplier.value) || 1;
+  return Math.min(1.0, Math.round(base * factor * 100) / 100);
+});
+
+/** 二采：用一采保存的入参原样重放，只放大像素档，并带回同一 cache_id 让供应商关联到一采。 */
+async function startSecondPass() {
+  const source = currentPassRecord.value;
+  const sourcePath = outputFile.value?.url;
+  if (!source || source.kind !== "first" || !sourcePath) throw new Error("当前视频没有一采数据，无法二采");
+  if (generating.value) throw new Error("视频正在生成，请等待完成");
+  if (uploading.value) throw new Error("视频正在替换，请等待完成");
+  if (deleting.value) throw new Error("节点正在删除");
+  const targetMegapixels = secondTargetMegapixels.value;
+  const workspace = files.getWorkspaceFiles();
+  const controller = new AbortController();
+  const input: Omit<NodeVideoRequest, "directory"> = {
+    providerId: source.providerId,
+    modelId: source.modelId,
+    prompt: source.prompt,
+    mode: source.mode,
+    duration: source.duration,
+    resolution: String(targetMegapixels),
+    ratio: source.ratio,
+    generateAudio: source.generateAudio,
+    outputDirectory: `assets/${id}`,
+    images: source.images,
+    firstFrame: source.firstFrame,
+    lastFrame: source.lastFrame,
+    videos: source.videos,
+    audios: source.audios,
+    other: { __zealmanSecondPass: { cacheId: source.cacheId } },
+  };
+  generationController = controller;
+  batchTotal.value = 1;
+  batchCurrent.value = 1;
+  generateDone.value = false;
+  generation = generationState.run(async () => {
+    const { directory } = await workspace.list();
+    const { files: [result], providerData } = await ai.generateVideo({ ...input, directory }, controller.signal);
+    controller.signal.throwIfAborted();
+    if (!result) throw new Error("供应商未返回视频");
+    outputs.value.video = { dataType: "VIDEO", value: { url: result.path, mimeType: result.mimeType } };
+    const passInfo = (providerData as { zealmanH3?: { cacheId?: unknown } } | undefined)?.zealmanH3;
+    data.value.passRecords ??= {};
+    data.value.passRecords[result.path] = {
+      kind: "second",
+      providerId: source.providerId,
+      modelId: source.modelId,
+      cacheId: typeof passInfo?.cacheId === "string" && passInfo.cacheId ? passInfo.cacheId : source.cacheId,
+      prompt: source.prompt,
+      mode: source.mode,
+      duration: source.duration,
+      resolution: String(targetMegapixels),
+      ratio: source.ratio,
+      generateAudio: source.generateAudio,
+      megapixels: targetMegapixels,
+      images: source.images,
+      firstFrame: source.firstFrame,
+      lastFrame: source.lastFrame,
+      videos: source.videos,
+      audios: source.audios,
+      sourcePath,
+    };
+  })
+    .then(() => { generateDone.value = true; })
+    .catch((error) => showNodeError(error, "二采失败"))
+    .finally(() => {
+      generationController = undefined;
+      batchCurrent.value = 0;
+      batchTotal.value = 0;
+    });
+  return { status: "generating" };
+}
+
+function confirmSecondPass() {
+  secondPassVisible.value = false;
+  startSecondPass().catch((error) => showNodeError(error, "二采失败"));
 }
 
 nodeEvent.on("save", (reason) => {
@@ -693,13 +861,34 @@ nodeTools.register({
 
 }
 
+.secondPassBody {
+  .secondPassDesc {
+    margin: 0 0 12px;
+    color: var(--el-text-color-secondary);
+    font-size: 13px;
+  }
+
+  .secondPassRow {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    margin-bottom: 10px;
+    font-size: 14px;
+  }
+
+  .secondPassNote {
+    margin: 4px 0 0;
+    color: var(--el-color-warning);
+    font-size: 12px;
+  }
+}
+
 .promptCard {
   .referenceHint {
     margin: 8px 0;
     color: var(--el-text-color-secondary);
     font-size: 12px;
   }
-
   .promptFooter {
     display: flex;
     align-items: center;
