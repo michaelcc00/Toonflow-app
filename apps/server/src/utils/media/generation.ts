@@ -144,7 +144,7 @@ export async function generateMedia(
   mediaType: "image" | "video" | "audio",
   request: MediaGenerationRequest,
   signal?: AbortSignal,
-): Promise<GeneratedMedia[]> {
+): Promise<{ files: GeneratedMedia[]; optimizedPrompt?: string; providerData?: Record<string, unknown> }> {
   signal?.throwIfAborted();
   if (!request.prompt.trim()) invalid("请输入生成提示词");
   const directory = await realpath(cwd);
@@ -177,9 +177,11 @@ export async function generateMedia(
       ratio: request.ratio, resolution: request.resolution, duration: request.duration,
       generateAudio: request.generateAudio, mode: request.mode, other: request.other,
     });
-  // 供应商可返回数组或 { assets, optimizedPrompt }；后者透出本次实际使用的提示词（如 LLM 优化版）
+  // 供应商可返回数组或 { assets, optimizedPrompt, providerData }；optimizedPrompt 透出本次实际使用的提示词（如 LLM 优化版），
+  // providerData 透出供应商自定义的结构化数据（如 zealman H3 的一采 cache_id），由节点自行保存使用
   const assetList = Array.isArray(assets) ? assets : assets.assets;
   const optimizedPrompt = Array.isArray(assets) ? undefined : assets.optimizedPrompt;
+  const providerData = Array.isArray(assets) ? undefined : assets.providerData;
   if (!Array.isArray(assetList) || !assetList.length) invalid("供应商未返回生成结果");
   const written: string[] = [];
   const result: GeneratedMedia[] = [];
@@ -201,7 +203,7 @@ export async function generateMedia(
       } finally { release(); }
     }
     signal?.throwIfAborted();
-    return { files: result, optimizedPrompt };
+    return { files: result, optimizedPrompt, providerData };
   } catch (err) {
     // ACT: 只回滚本次创建的文件，保留目录中已有的节点资源。
     await Promise.all(written.map(path => unlink(path).catch((error: NodeJS.ErrnoException) => { if (error.code !== "ENOENT") throw error; })));
