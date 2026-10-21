@@ -178,12 +178,15 @@ type AudioRequest = MediaRequest & {
 
 /**
  * 生成结果的扩展返回：除最终媒体数组外，供应商可附带本次实际使用的提示词
- * （例如经过 LLM 优化后的版本），宿主收到后可写回输入框供下次直接修改。
+ * （例如经过 LLM 优化后的版本），宿主收到后可写回输入框供下次直接修改；
+ * 也可附带供应商自定义的结构化数据（providerData），由宿主原样透传给节点保存使用。
  */
 interface MediaGenerationResult {
   assets: MediaAsset[];
   /** 本次实际使用的提示词；缺省表示与请求提示词一致，无需写回。 */
   optimizedPrompt?: string;
+  /** 供应商自定义结构化数据（如一采/二采关联标记），宿主不解释内容，只透传给节点。 */
+  providerData?: Record<string, unknown>;
 }
 
 /**
