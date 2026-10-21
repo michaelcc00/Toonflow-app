@@ -19,18 +19,22 @@
               @click="selected = item"
               @keydown.enter="selected = item"
               @keydown.space.prevent="selected = item">
-              <span class="fileName">{{ item.url.split('/').at(-1) }}</span>
-              <span v-if="isCurrent(item)" class="currentLabel">当前结果</span>
-              <el-button
-                v-if="!isCurrent(item)"
-                class="deleteBtn"
-                text
-                type="danger"
-                size="small"
-                :icon="IconTrash"
-                :loading="deletingUrl === item.url"
-                aria-label="删除该历史文件"
-                @click.stop="deleteItem(item)" />
+              <div class="itemMain">
+                <span class="fileName">{{ item.url.split('/').at(-1) }}</span>
+                <span v-if="isCurrent(item)" class="currentLabel">当前结果</span>
+                <span v-if="markOf(item)?.badge" class="passBadge">{{ markOf(item)?.badge }}</span>
+                <el-button
+                  v-if="!isCurrent(item)"
+                  class="deleteBtn"
+                  text
+                  type="danger"
+                  size="small"
+                  :icon="IconTrash"
+                  :loading="deletingUrl === item.url"
+                  aria-label="删除该历史文件"
+                  @click.stop="deleteItem(item)" />
+              </div>
+              <div v-if="markOf(item)?.note" class="itemNote">{{ markOf(item)?.note }}</div>
             </div>
           </div>
           <div class="historyPreview" v-loading="!!selected && !previewReady && !previewError">
@@ -77,7 +81,12 @@ import { IconChevronLeft, IconChevronRight, IconHistory, IconTrash, IconX, IconZ
 import { useNodeFiles } from "@toonflow/nodes-scaffold/workspaceFiles";
 import type { NodeMediaValue } from "@toonflow/nodes-scaffold/values";
 
-const props = defineProps<{ mediaType: "image" | "video"; current?: NodeMediaValue; disabled?: boolean }>();
+const props = defineProps<{ mediaType: "image" | "video"; current?: NodeMediaValue; marks?: Record<string, { badge: string; note?: string }>; disabled?: boolean }>();
+
+/** 某条历史记录的外部标记（如二采徽标与来源说明），由节点按文件路径传入。 */
+function markOf(item: NodeMediaValue) {
+  return props.marks?.[item.url];
+}
 const emit = defineEmits<{ select: [value: NodeMediaValue] }>();
 const vLoading = ElLoading.directive;
 const { id } = useNode();
@@ -245,8 +254,9 @@ async function deleteItem(item: NodeMediaValue) {
 
       .historyItem {
         display: flex;
-        align-items: center;
-        gap: 8px;
+        flex-direction: column;
+        align-items: stretch;
+        gap: 2px;
         width: 100%;
         padding: 10px;
         border: 1px solid transparent;
@@ -260,8 +270,11 @@ async function deleteItem(item: NodeMediaValue) {
         &:hover { background: var(--el-fill-color-light); }
         &.selected { border-color: var(--el-color-primary); background: var(--el-color-primary-light-9); }
         &:focus-visible { outline: 2px solid var(--el-color-primary); outline-offset: -2px; }
+        .itemMain { display: flex; align-items: center; gap: 8px; }
         .fileName { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
         .currentLabel { flex-shrink: 0; color: var(--el-color-primary); font-size: 12px; }
+        .passBadge { flex-shrink: 0; color: var(--el-color-warning); font-size: 12px; font-weight: 600; }
+        .itemNote { color: var(--el-text-color-secondary); font-size: 12px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
         .deleteBtn {
           flex-shrink: 0;
           margin-left: auto;
