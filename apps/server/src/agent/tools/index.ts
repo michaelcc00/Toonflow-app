@@ -68,9 +68,10 @@ export function createAgentToolContext(cwd: string, config: Record<string, unkno
     ffmpeg: signal => { requireWorkspace(); return createWorkspaceFfmpeg(cwd, signal); },
     media: workspaceAvailable ? {
       listModels: listMediaModels,
-      generateImage: (request, signal) => generateMedia(cwd, "image", request, signal),
-      generateVideo: (request, signal) => generateMedia(cwd, "video", request, signal),
-      generateAudio: (request, signal) => generateMedia(cwd, "audio", request, signal),
+      // generateMedia 返回 { files, optimizedPrompt, providerData }，MediaContext 只约定文件数组，这里解包
+      generateImage: (request, signal) => generateMedia(cwd, "image", request, signal).then(result => result.files),
+      generateVideo: (request, signal) => generateMedia(cwd, "video", request, signal).then(result => result.files),
+      generateAudio: (request, signal) => generateMedia(cwd, "audio", request, signal).then(result => result.files),
     } : undefined,
     sdk: {
       defineTool, createReadToolDefinition, createWriteToolDefinition, createEditToolDefinition, createLsToolDefinition,
