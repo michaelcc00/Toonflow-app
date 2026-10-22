@@ -134,16 +134,15 @@
   <frameExtractDialog ref="frameExtract" :src="previewUrl" :label="node.data.label" />
   <el-dialog v-model="secondPassVisible" title="二采（放大重生成）" width="380px" appendToBody>
     <div class="secondPassBody">
-      <p class="secondPassDesc">使用一采保存的提示词、参考素材和参数重新生成，只放大像素档。</p>
+      <p class="secondPassDesc">使用一采保存的提示词、参考素材和参数重新生成，只需填写放大倍数，放大在工作流内部完成。</p>
       <div class="secondPassRow">
         <span>放大倍数</span>
         <el-input-number v-model="secondPassMultiplier" :min="1" :max="10" :step="0.5" :precision="1" :disabled="generating" aria-label="放大倍数" />
       </div>
       <div class="secondPassRow">
-        <span>像素档</span>
-        <span>{{ currentPassRecord?.megapixels ?? currentPassRecord?.resolution ?? "—" }} → {{ secondTargetMegapixels }}</span>
+        <span>一采像素档</span>
+        <span>{{ currentPassRecord?.megapixels ?? currentPassRecord?.resolution ?? "—" }}</span>
       </div>
-      <p v-if="secondTargetMegapixels >= 1" class="secondPassNote">像素档上限为 1.0，将按上限生成。</p>
     </div>
     <template #footer>
       <el-button @click="secondPassVisible = false">取消</el-button>
@@ -203,6 +202,8 @@ type PassRecord = {
   audios?: PassMediaRef[];
   /** 二采记录专用：来源一采的文件路径。 */
   sourcePath?: string;
+  /** 二采记录专用：本次使用的放大倍数（放大在工作流内部完成，megapixels 与一采一致）。 */
+  multiplier?: number;
 };
 const data = computed(() => node.data as { prompt: string; promptModel: PromptModel; optimizedPrompt: string; optimizedPromptModel: PromptModel; model: string; duration?: number; resolution: string; ratio: string; mode: string; generateAudio: boolean; batchCount?: number; passRecords?: Record<string, PassRecord> });
 data.value.prompt ??= "";
@@ -557,14 +558,8 @@ const historyMarks = computed(() => {
 });
 const secondPassVisible = ref(false);
 const secondPassMultiplier = ref(2);
-/** 二采目标像素档：一采像素档 × 放大倍数，上限 1.0。 */
-const secondTargetMegapixels = computed(() => {
-  const base = currentPassRecord.value?.megapixels || Number.parseFloat(currentPassRecord.value?.resolution ?? "") || 0.3;
-  const factor = Number(secondPassMultiplier.value) || 1;
-  return Math.min(1.0, Math.round(base * factor * 100) / 100);
-});
 
-/** 二采：用一采保存的入参原样重放，只放大像素档，并带回同一 cache_id 让供应商关联到一采。 */
+/** 二采：用一采保存的入参原样重放（megapixels 不变），带回同一 cache_id 和放大倍数，放大由工作流内部完成。 */
 async function startSecondPass() {
   const source = currentPassRecord.value;
   const sourcePath = outputFile.value?.url;
@@ -572,7 +567,7 @@ async function startSecondPass() {
   if (generating.value) throw new Error("视频正在生成，请等待完成");
   if (uploading.value) throw new Error("视频正在替换，请等待完成");
   if (deleting.value) throw new Error("节点正在删除");
-  const targetMegapixels = secondTargetMegapixels.value;
+  const multiplier = Number(secondPassMultiplier.value) || 1;
   const workspace = files.getWorkspaceFiles();
   const controller = new AbortController();
   const input: Omit<NodeVideoRequest, "directory"> = {
@@ -581,7 +576,7 @@ async function startSecondPass() {
     prompt: source.prompt,
     mode: source.mode,
     duration: source.duration,
-    resolution: String(targetMegapixels),
+    resolution: source.resolution,
     ratio: source.ratio,
     generateAudio: source.generateAudio,
     outputDirectory: `assets/${id}`,
@@ -590,7 +585,7 @@ async function startSecondPass() {
     lastFrame: source.lastFrame,
     videos: source.videos,
     audios: source.audios,
-    other: { __zealmanSecondPass: { cacheId: source.cacheId } },
+    other: { __zealmanSecondPass: { cacheId: source.cacheId, multiplier } },
   };
   generationController = controller;
   batchTotal.value = 1;
@@ -612,10 +607,11 @@ async function startSecondPass() {
       prompt: source.prompt,
       mode: source.mode,
       duration: source.duration,
-      resolution: String(targetMegapixels),
+      resolution: source.resolution,
       ratio: source.ratio,
       generateAudio: source.generateAudio,
-      megapixels: targetMegapixels,
+      megapixels: source.megapixels,
+      multiplier,
       images: source.images,
       firstFrame: source.firstFrame,
       lastFrame: source.lastFrame,
@@ -874,12 +870,6 @@ nodeTools.register({
     justify-content: space-between;
     margin-bottom: 10px;
     font-size: 14px;
-  }
-
-  .secondPassNote {
-    margin: 4px 0 0;
-    color: var(--el-color-warning);
-    font-size: 12px;
   }
 }
 
