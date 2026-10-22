@@ -24,6 +24,7 @@
       <el-button text :icon="IconCopyPlus" :disabled="busy || disabled" @click="operate('duplicate')">创建副本</el-button>
       <el-button text :icon="IconBoxMultiple" :disabled="busy || disabled" @click="operate('group')">打组</el-button>
       <el-button text :icon="IconDeselect" :disabled="busy || disabled || !hasGroup" @click="operate('ungroup')">解组</el-button>
+      <el-button text :icon="IconMovie" :disabled="busy || disabled || !canCreateMerge" @click="createVideoMerge">视频合成</el-button>
       <el-button text :icon="IconPlayerPlay" :disabled="busy || disabled || !hasGeneratableNodes" @click="openBatchExecute">批量执行</el-button>
     </div>
   </el-card>
@@ -34,10 +35,12 @@ import { computed, nextTick, ref } from "vue";
 import { getRectOfNodes, useVueFlow, type GraphNode, type Node, type XYPosition } from "@vue-flow/core";
 import { ElButton, ElCard, ElMessage } from "element-plus";
 import {
-  IconCopyPlus, IconBoxMultiple, IconDeselect, IconPlayerPlay,
+  IconCopyPlus, IconBoxMultiple, IconDeselect, IconPlayerPlay, IconMovie,
   IconLayoutGrid, IconLayoutColumns, IconLayoutRows,
 } from "@tabler/icons-vue";
 import { useNodeEvent } from "@toonflow/nodes-scaffold/nodeEvent";
+import { isTypeCompatible, type NodeHandle } from "@toonflow/nodes-scaffold/runtime";
+import { getSelectionConnections } from "../selectionConnections";
 import { useBatchExecutionStore, type BatchItem } from "@/stores/batchExecution";
 import { finishGroupDrag, getSelectionRoots, getSelectionTree } from "../selectionNodes";
 import { arrangeSelection, type ArrangeSelectionMode } from "../arrangeSelection";
@@ -71,6 +74,43 @@ const generatableNodes = computed(() => {
   });
 });
 const hasGeneratableNodes = computed(() => generatableNodes.value.length > 0);
+const mergeNodeAvailable = computed(() => Boolean(flow.nodeTypes?.value?.["remote-videoMergeNode"]));
+const videoSourceNodes = computed(() => getSelectionRoots(flow.getSelectedNodes.value, flow.getNodes.value)
+  .filter(node => ((node.data?.handles as NodeHandle[] | undefined) ?? [])
+    .some(handle => handle.type === "source" && isTypeCompatible(handle.dataType, "VIDEO"))));
+const canCreateMerge = computed(() => mergeNodeAvailable.value && videoSourceNodes.value.length >= 2);
+
+async function createVideoMerge() {
+  if (busy.value || props.disabled || !canCreateMerge.value) return;
+  const sources = videoSourceNodes.value;
+  const signal = props.getSignal();
+  busy.value = true;
+  try {
+    await props.batchHistory(async () => {
+      signal.throwIfAborted();
+      const bounds = getRectOfNodes(sources);
+      const id = crypto.randomUUID();
+      flow.addNodes({ id, type: "remote-videoMergeNode", position: { x: bounds.x + bounds.width + 80, y: bounds.y }, data: { label: "视频合成" } });
+      // ACT: 远端节点挂载后才注册端口，等一拍再按端口匹配连线，与拉线菜单建节点一致。
+      await nextTick();
+      const created = flow.findNode(id);
+      if (!created) throw new Error("视频合成节点创建失败");
+      const connections = flow.nodesConnectable.value
+        ? getSelectionConnections(sources, created, flow.getNodes.value, flow.getEdges.value, "in")
+        : undefined;
+      if (!connections?.length) {
+        flow.removeNodes([id]);
+        throw new Error("所选视频无法连接到视频合成节点");
+      }
+      flow.addEdges(connections);
+      await selectNodes([id], signal);
+    });
+  } catch (error) {
+    if (!signal.aborted) ElMessage.error(error instanceof Error ? error.message : "视频合成创建失败");
+  } finally {
+    busy.value = false;
+  }
+}
 
 function openBatchExecute() {
   if (batchExecution.active) {
