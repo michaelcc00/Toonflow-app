@@ -13,10 +13,18 @@ function runConcat(command: BrowserFfmpegCommand, output: string, signal?: Abort
     const cancel = () => command.kill();
     signal?.addEventListener("abort", cancel, { once: true });
     const cleanup = () => signal?.removeEventListener("abort", cancel);
+    const stderrLines: string[] = [];
+    command.on("stderr", (line: string) => {
+      stderrLines.push(String(line));
+      if (stderrLines.length > 12) stderrLines.shift();
+    });
     command.on("start", () => { if (signal?.aborted) command.kill(); });
-    command.on("error", error => {
+    command.on("error", (error: Error, _stdout?: string | null, stderr?: string | null) => {
       cleanup();
-      reject(signal?.aborted ? signal.reason : error);
+      if (signal?.aborted) { reject(signal.reason); return; }
+      // ACT: fluent 的报错只带 stderr 最后一行；把尾部几行带上，弹窗里能看到失败的真正原因。
+      const detail = (typeof stderr === "string" && stderr.trim() ? stderr : stderrLines.join("\n")).trim().split("\n").slice(-6).join("\n");
+      reject(detail && !error.message.includes(detail) ? new Error(`${error.message}\n${detail}`) : error);
     });
     command.on("end", () => {
       cleanup();
