@@ -51,7 +51,7 @@
       <div v-if="generateDone" class="generateDoneMask" @click.stop="generateDone = false" role="button" aria-label="生成已完成，点击关闭">
         <span class="generateDoneText">生成已完成</span>
       </div>
-      <div v-if="batchQueue" class="batchQueueMask" role="button" aria-label="批量排队，点击打开批量执行" @click.stop="openBatchDialog">
+      <div v-if="batchQueue" class="batchQueueMask" role="button" aria-label="批量排队，点击打开批量执行" @click.stop="openBatchDialog(batchQueue.mode)">
         <span>批量排队 {{ batchQueue.position }}/{{ batchQueue.total }}</span>
       </div>
     </div>
