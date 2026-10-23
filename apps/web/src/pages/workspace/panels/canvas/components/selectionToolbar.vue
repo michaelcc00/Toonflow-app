@@ -26,6 +26,7 @@
       <el-button text :icon="IconDeselect" :disabled="busy || disabled || !hasGroup" @click="operate('ungroup')">解组</el-button>
       <el-button text :icon="IconMovie" :disabled="busy || disabled || !canCreateMerge" @click="createVideoMerge">视频合成</el-button>
       <el-button text :icon="IconPlayerPlay" :disabled="busy || disabled || !hasGeneratableNodes" @click="openBatchExecute">批量执行</el-button>
+      <el-button text :icon="IconWand" :disabled="busy || disabled || !hasOptimizableNodes" @click="openBatchOptimize">批量优化</el-button>
     </div>
   </el-card>
 </template>
@@ -35,7 +36,7 @@ import { computed, nextTick, ref } from "vue";
 import { getRectOfNodes, useVueFlow, type GraphNode, type Node, type XYPosition } from "@vue-flow/core";
 import { ElButton, ElCard, ElMessage } from "element-plus";
 import {
-  IconCopyPlus, IconBoxMultiple, IconDeselect, IconPlayerPlay, IconMovie,
+  IconCopyPlus, IconBoxMultiple, IconDeselect, IconPlayerPlay, IconMovie, IconWand,
   IconLayoutGrid, IconLayoutColumns, IconLayoutRows,
 } from "@tabler/icons-vue";
 import { useNodeEvent } from "@toonflow/nodes-scaffold/nodeEvent";
@@ -124,6 +125,29 @@ function openBatchExecute() {
     status: "queued",
   }));
   batchExecution.openDialog(items);
+}
+const optimizableNodes = computed(() => {
+  const seen = new Set<string>();
+  return flow.getSelectedNodes.value.filter(node => {
+    if (seen.has(node.id) || node.type !== "remote-videoGenerationNode") return false;
+    seen.add(node.id);
+    return true;
+  });
+});
+const hasOptimizableNodes = computed(() => optimizableNodes.value.length > 0);
+
+function openBatchOptimize() {
+  if (batchExecution.active) {
+    batchExecution.dialogVisible = true;
+    return;
+  }
+  const items: BatchItem[] = optimizableNodes.value.map(node => ({
+    nodeId: node.id,
+    label: String(node.data?.label ?? node.label ?? node.id),
+    nodeType: "video",
+    status: "queued",
+  }));
+  batchExecution.openDialog(items, "optimize");
 }
 const visible = computed(() => !props.disabled && !flow.userSelectionActive.value && flow.getSelectedNodes.value.length > 0
   && (flow.nodesSelectionActive.value || hasGroup.value));
