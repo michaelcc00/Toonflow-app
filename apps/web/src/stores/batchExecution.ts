@@ -2,6 +2,7 @@ import { computed, ref } from "vue";
 import { defineStore } from "pinia";
 
 export type BatchItemStatus = "queued" | "running" | "done" | "failed" | "cancelled";
+export type BatchMode = "generate" | "optimize";
 export type BatchItem = {
   nodeId: string;
   label: string;
@@ -11,6 +12,7 @@ export type BatchItem = {
 
 export const useBatchExecutionStore = defineStore("batchExecution", () => {
   const items = ref<BatchItem[]>([]);
+  const mode = ref<BatchMode>("generate");
   const concurrency = ref(1);
   const perNodeBatch = ref(1);
   const active = ref(false);
@@ -20,8 +22,9 @@ export const useBatchExecutionStore = defineStore("batchExecution", () => {
   const doneCount = computed(() => items.value.filter(item => item.status === "done" || item.status === "failed").length);
   const total = computed(() => items.value.length);
 
-  function openDialog(nextItems: BatchItem[]) {
+  function openDialog(nextItems: BatchItem[], nextMode: BatchMode = "generate") {
     items.value = nextItems;
+    mode.value = nextMode;
     dialogVisible.value = true;
   }
 
@@ -32,12 +35,13 @@ export const useBatchExecutionStore = defineStore("batchExecution", () => {
 
   function reset() {
     items.value = [];
+    mode.value = "generate";
     active.value = false;
     dialogVisible.value = false;
   }
 
   return {
-    items, concurrency, perNodeBatch, active, dialogVisible, running, queuedCount, doneCount, total,
+    items, mode, concurrency, perNodeBatch, active, dialogVisible, running, queuedCount, doneCount, total,
     openDialog, setStatus, reset,
   };
 });
