@@ -1,7 +1,7 @@
 <template>
   <el-dialog
     v-model="store.dialogVisible"
-    title="批量执行"
+    :title="store.mode === 'optimize' ? '批量优化提示词' : '批量执行'"
     width="min(640px, calc(100vw - 32px))"
     alignCenter
     appendToBody
@@ -39,7 +39,7 @@
         <el-input-number v-model="store.concurrency" :min="1" :max="10" :disabled="store.active" aria-label="并发数量" />
         <el-text type="info" size="small">同时执行的节点数</el-text>
       </div>
-      <div class="batchSettings">
+      <div v-if="store.mode === 'generate'" class="batchSettings">
         <span class="settingsLabel">每个节点执行批次</span>
         <el-select v-model="store.perNodeBatch" :disabled="store.active" aria-label="每个节点执行批次" style="width: 120px">
           <el-option v-for="n in 5" :key="n" :label="`${n}`" :value="n" />
@@ -115,20 +115,40 @@ async function waitForNodeDone(nodeId: string) {
   }
 }
 
-async function runWorker(batchCount: number) {
+async function waitForOptimizeDone(nodeId: string) {
+  while (!cancelled) {
+    await sleep(2000);
+    if (cancelled) return;
+    const result = await toolsContext.call({ nodeId, name: "node:getOptimizeStatus", args: {} }) as { status: string; error?: string };
+    if (result.status === "succeeded") return;
+    if (result.status === "failed") throw new Error(result.error || "提示词优化失败");
+  }
+}
+
+async function runWorker(batchCount: number, mode: "generate" | "optimize") {
   while (!cancelled) {
     const item: BatchItem | undefined = store.items.find(item => item.status === "queued");
     if (!item) return;
     store.setStatus(item.nodeId, "running");
     refreshQueueOverlays();
     try {
-      try {
-        await toolsContext.call({ nodeId: item.nodeId, name: item.nodeType === "image" ? "node:generateImage" : "node:generateVideo", args: { batchCount } });
-      } catch (error) {
-        // 节点已在手动生成：不重复触发，等它跑完。
-        if (!String((error as Error)?.message ?? "").includes("正在生成")) throw error;
+      if (mode === "optimize") {
+        try {
+          await toolsContext.call({ nodeId: item.nodeId, name: "node:optimizePrompt", args: {} });
+        } catch (error) {
+          // 节点已在手动优化：不重复触发，等它跑完。
+          if (!String((error as Error)?.message ?? "").includes("正在优化")) throw error;
+        }
+        await waitForOptimizeDone(item.nodeId);
+      } else {
+        try {
+          await toolsContext.call({ nodeId: item.nodeId, name: item.nodeType === "image" ? "node:generateImage" : "node:generateVideo", args: { batchCount } });
+        } catch (error) {
+          // 节点已在手动生成：不重复触发，等它跑完。
+          if (!String((error as Error)?.message ?? "").includes("正在生成")) throw error;
+        }
+        await waitForNodeDone(item.nodeId);
       }
-      await waitForNodeDone(item.nodeId);
       if (cancelled) return;
       store.setStatus(item.nodeId, "done");
     } catch {
@@ -149,8 +169,9 @@ async function startBatch() {
   store.dialogVisible = false;
   // ACT: 批量执行时每个节点按此批次生成，覆盖节点自身的批次设置；单独生成不受影响。
   const batchCount = Math.min(5, Math.max(1, Math.floor(store.perNodeBatch) || 1));
+  const mode = store.mode;
   const workerCount = Math.min(Math.max(1, Math.floor(store.concurrency) || 1), store.items.length);
-  await Promise.allSettled(Array.from({ length: workerCount }, () => runWorker(batchCount)));
+  await Promise.allSettled(Array.from({ length: workerCount }, () => runWorker(batchCount, mode)));
   refreshQueueOverlays();
 }
 
