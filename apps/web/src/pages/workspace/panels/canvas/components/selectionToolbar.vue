@@ -42,7 +42,7 @@ import {
 import { useNodeEvent } from "@toonflow/nodes-scaffold/nodeEvent";
 import { isTypeCompatible, type NodeHandle } from "@toonflow/nodes-scaffold/runtime";
 import { getSelectionConnections } from "../selectionConnections";
-import { useBatchExecutionStore, type BatchItem } from "@/stores/batchExecution";
+import { useBatchGenerationStore, useBatchOptimizeStore, type BatchItem } from "@/stores/batchExecution";
 import { finishGroupDrag, getSelectionRoots, getSelectionTree } from "../selectionNodes";
 import { arrangeSelection, type ArrangeSelectionMode } from "../arrangeSelection";
 
@@ -65,7 +65,8 @@ const canArrangeSelection = computed(() => !busy.value && !props.disabled && sel
     && Number.isFinite(node.dimensions.width) && node.dimensions.width > 0
     && Number.isFinite(node.dimensions.height) && node.dimensions.height > 0));
 const hasGroup = computed(() => flow.getSelectedNodes.value.some(node => node.type === "canvasGroup"));
-const batchExecution = useBatchExecutionStore();
+const batchGeneration = useBatchGenerationStore();
+const batchOptimize = useBatchOptimizeStore();
 const generatableNodes = computed(() => {
   const seen = new Set<string>();
   return flow.getSelectedNodes.value.filter(node => {
@@ -114,8 +115,8 @@ async function createVideoMerge() {
 }
 
 function openBatchExecute() {
-  if (batchExecution.active) {
-    batchExecution.dialogVisible = true;
+  if (batchGeneration.active) {
+    batchGeneration.dialogVisible = true;
     return;
   }
   const items: BatchItem[] = generatableNodes.value.map(node => ({
@@ -124,7 +125,7 @@ function openBatchExecute() {
     nodeType: node.type === "remote-imageGenerationNode" ? "image" : "video",
     status: "queued",
   }));
-  batchExecution.openDialog(items);
+  batchGeneration.openDialog(items);
 }
 const optimizableNodes = computed(() => {
   const seen = new Set<string>();
@@ -137,8 +138,8 @@ const optimizableNodes = computed(() => {
 const hasOptimizableNodes = computed(() => optimizableNodes.value.length > 0);
 
 function openBatchOptimize() {
-  if (batchExecution.active) {
-    batchExecution.dialogVisible = true;
+  if (batchOptimize.active) {
+    batchOptimize.dialogVisible = true;
     return;
   }
   const items: BatchItem[] = optimizableNodes.value.map(node => ({
@@ -147,7 +148,7 @@ function openBatchOptimize() {
     nodeType: "video",
     status: "queued",
   }));
-  batchExecution.openDialog(items, "optimize");
+  batchOptimize.openDialog(items);
 }
 const visible = computed(() => !props.disabled && !flow.userSelectionActive.value && flow.getSelectedNodes.value.length > 0
   && (flow.nodesSelectionActive.value || hasGroup.value));
