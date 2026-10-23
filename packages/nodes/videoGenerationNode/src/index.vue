@@ -232,6 +232,8 @@ const actualVideoHeight = ref(0);
 let generationController: AbortController | undefined;
 const optimizing = ref(false);
 const optimizeDone = ref(false);
+const optimizeStatus = ref<"idle" | "running" | "succeeded" | "failed">("idle");
+const optimizeError = ref("");
 const generateDone = ref(false);
 const showOptimized = ref(!!data.value.optimizedPrompt.trim());
 const hasOptimized = computed(() => !!data.value.optimizedPrompt.trim());
@@ -423,6 +425,8 @@ async function runOptimize() {
   const images = refList.value.flatMap((item) => item.dataType === "IMAGE" && item.value ? [{ path: item.value.url, mimeType: item.value.mimeType }] : []);
   optimizing.value = true;
   optimizeDone.value = false;
+  optimizeStatus.value = "running";
+  optimizeError.value = "";
   try {
     const { directory } = await files.getWorkspaceFiles().list();
     const { optimized } = await ai.optimizePrompt({
@@ -442,6 +446,11 @@ async function runOptimize() {
     data.value.optimizedPromptModel = optimized.split("\n").map((text) => [{ type: "Write", text }]);
     showOptimized.value = true;
     optimizeDone.value = true;
+    optimizeStatus.value = "succeeded";
+  } catch (error) {
+    optimizeStatus.value = "failed";
+    optimizeError.value = error instanceof Error ? error.message : "提示词优化失败";
+    throw error;
   } finally {
     optimizing.value = false;
   }
@@ -748,6 +757,35 @@ nodeTools.register({
     signal?.throwIfAborted();
     return startGeneration(args.batchCount);
   },
+});
+
+nodeTools.register({
+  name: "optimizePrompt",
+  description: "对此节点的原始提示词执行一次提示词优化（使用设置 → 提示词优化中配置的模型与默认模板），结果写入优化后提示词并默认显示；立即返回已开始，用 getOptimizeStatus 查询完成结果",
+  parameters: z.strictObject({}),
+  execute(_args, { signal }) {
+    signal?.throwIfAborted();
+    if (optimizing.value) throw new Error("正在优化提示词，请等待完成");
+    if (generating.value) throw new Error("视频正在生成，请等待完成后再优化提示词");
+    if (deleting.value) throw new Error("节点正在删除");
+    optimizeStatus.value = "running";
+    optimizeError.value = "";
+    void runOptimize().then(
+      () => { optimizeStatus.value = "succeeded"; },
+      (error) => {
+        optimizeStatus.value = "failed";
+        optimizeError.value = error instanceof Error ? error.message : "提示词优化失败";
+      },
+    );
+    return { started: true };
+  },
+});
+
+nodeTools.register({
+  name: "getOptimizeStatus",
+  description: "查询此节点提示词优化的状态（idle/running/succeeded/failed）和最近一次优化错误",
+  parameters: z.strictObject({}),
+  execute: () => ({ status: optimizeStatus.value, ...(optimizeError.value ? { error: optimizeError.value } : {}) }),
 });
 </script>
 
