@@ -10,38 +10,41 @@ export type BatchItem = {
   status: BatchItemStatus;
 };
 
-export const useBatchExecutionStore = defineStore("batchExecution", () => {
-  const items = ref<BatchItem[]>([]);
-  const mode = ref<BatchMode>("generate");
-  const concurrency = ref(1);
-  const perNodeBatch = ref(1);
-  const active = ref(false);
-  const dialogVisible = ref(false);
-  const running = computed(() => items.value.some(item => item.status === "running"));
-  const queuedCount = computed(() => items.value.filter(item => item.status === "queued").length);
-  const doneCount = computed(() => items.value.filter(item => item.status === "done" || item.status === "failed").length);
-  const total = computed(() => items.value.length);
+// ACT: 生成与优化各用一个独立 store，两种批量可同时进行，互不阻塞。
+function batchSetup(mode: BatchMode) {
+  return () => {
+    const items = ref<BatchItem[]>([]);
+    const concurrency = ref(1);
+    const perNodeBatch = ref(1);
+    const active = ref(false);
+    const dialogVisible = ref(false);
+    const running = computed(() => items.value.some(item => item.status === "running"));
+    const queuedCount = computed(() => items.value.filter(item => item.status === "queued").length);
+    const doneCount = computed(() => items.value.filter(item => item.status === "done" || item.status === "failed").length);
+    const total = computed(() => items.value.length);
 
-  function openDialog(nextItems: BatchItem[], nextMode: BatchMode = "generate") {
-    items.value = nextItems;
-    mode.value = nextMode;
-    dialogVisible.value = true;
-  }
+    function openDialog(nextItems: BatchItem[]) {
+      items.value = nextItems;
+      dialogVisible.value = true;
+    }
 
-  function setStatus(nodeId: string, status: BatchItemStatus) {
-    const item = items.value.find(item => item.nodeId === nodeId);
-    if (item) item.status = status;
-  }
+    function setStatus(nodeId: string, status: BatchItemStatus) {
+      const item = items.value.find(item => item.nodeId === nodeId);
+      if (item) item.status = status;
+    }
 
-  function reset() {
-    items.value = [];
-    mode.value = "generate";
-    active.value = false;
-    dialogVisible.value = false;
-  }
+    function reset() {
+      items.value = [];
+      active.value = false;
+      dialogVisible.value = false;
+    }
 
-  return {
-    items, mode, concurrency, perNodeBatch, active, dialogVisible, running, queuedCount, doneCount, total,
-    openDialog, setStatus, reset,
+    return {
+      items, mode, concurrency, perNodeBatch, active, dialogVisible, running, queuedCount, doneCount, total,
+      openDialog, setStatus, reset,
+    };
   };
-});
+}
+
+export const useBatchGenerationStore = defineStore("batchGeneration", batchSetup("generate"));
+export const useBatchOptimizeStore = defineStore("batchOptimization", batchSetup("optimize"));
