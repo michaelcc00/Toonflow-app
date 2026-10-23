@@ -92,7 +92,8 @@
         :batchHistory="canvasHistory.batch"
         :getSignal="() => canvasController.signal"
         :disabled="!canvasId || !project?.directory" />
-      <batchExecuteDialog />
+      <batchExecuteDialog mode="generate" />
+      <batchExecuteDialog mode="optimize" />
       <nodeSearch ref="nodeSearchRef" :disabled="!active || settingsVisible || !canvasId || !project?.directory" />
     </vue-flow>
     <teleport to="body">
