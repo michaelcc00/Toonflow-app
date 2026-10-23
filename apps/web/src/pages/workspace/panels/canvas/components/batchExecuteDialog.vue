@@ -62,9 +62,10 @@ import { ElButton, ElDialog, ElEmpty, ElInputNumber, ElOption, ElProgress, ElSel
 import { IconGripVertical, IconTrash } from "@tabler/icons-vue";
 import { batchDialogEvent, getBatchQueueMap } from "@toonflow/nodes-scaffold/runtime";
 import { useNodeToolsContext } from "@toonflow/nodes-scaffold/nodeTools";
-import { useBatchExecutionStore, type BatchItem } from "@/stores/batchExecution";
+import { useBatchGenerationStore, useBatchOptimizeStore, type BatchItem, type BatchMode } from "@/stores/batchExecution";
 
-const store = useBatchExecutionStore();
+const props = defineProps<{ mode: BatchMode }>();
+const store = (props.mode === "optimize" ? useBatchOptimizeStore : useBatchGenerationStore)();
 const flow = useVueFlow();
 const toolsContext = useNodeToolsContext()();
 const queueMap = getBatchQueueMap(flow);
@@ -80,7 +81,10 @@ function closeDialog() {
   refreshQueueOverlays();
 }
 
-function onOpenRequest() {
+function onOpenRequest(event: Event) {
+  // 生成与优化两个弹窗都监听同一事件，只响应自己模式的打开请求。
+  const mode = (event as CustomEvent<{ mode?: string }>).detail?.mode;
+  if (mode && mode !== store.mode) return;
   store.dialogVisible = true;
 }
 
@@ -92,12 +96,13 @@ onScopeDispose(() => {
 });
 
 function refreshQueueOverlays() {
-  for (const key of [...queueMap.keys()]) queueMap.delete(key);
+  // 只维护自己模式的排队遮罩，另一个模式的批量可能同时在跑，不能清掉它的。
+  for (const [key, info] of [...queueMap.entries()]) if (info.mode === store.mode) queueMap.delete(key);
   // ACT: 遮罩只在执行中显示；设置阶段拖动排序也不画遮罩。
   if (!store.active) return;
   const total = store.items.length;
   store.items.forEach((item, index) => {
-    if (item.status === "queued") queueMap.set(item.nodeId, { position: index + 1, total });
+    if (item.status === "queued") queueMap.set(item.nodeId, { position: index + 1, total, mode: store.mode });
   });
 }
 
