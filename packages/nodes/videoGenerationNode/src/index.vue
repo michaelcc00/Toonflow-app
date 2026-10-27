@@ -73,7 +73,7 @@
             size="small"
             aria-label="切换原始或优化后提示词" />
         </div>
-        <promptInput v-model="displayPromptModel" v-model:text="displayPrompt" :references="referenceMentions" expandable />
+        <promptInput v-model="displayPromptModel" v-model:text="displayPrompt" :references="referenceMentions" expandable libraryType="video" />
         <div class="promptFooter">
           <el-select
             v-model="data.model"
