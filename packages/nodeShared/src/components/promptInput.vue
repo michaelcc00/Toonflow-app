@@ -1,7 +1,7 @@
 <template>
   <div class="promptInputWrap nodrag nopan nowheel">
     <el-button v-if="expandable" class="expandButton" :icon="IconMaximize" text circle title="展开编辑提示词" aria-label="展开编辑提示词" @mousedown.prevent @click.stop="expanded = true" />
-    <el-button v-if="expandable && libraryType" class="libraryButton" :icon="IconBookmarks" text circle title="插入常用提示词" aria-label="插入常用提示词" @mousedown.prevent @click.stop="libraryVisible = true" />
+    <el-button v-if="expandable && libraryType" class="libraryButton" :icon="IconBookmarks" text circle title="插入常用提示词" aria-label="插入常用提示词" @mousedown.prevent @click.stop="openLibrary" />
     <teleport :to="expandedTarget || 'body'" :disabled="!expanded || !expandedTarget">
       <div ref="senderElement" class="promptInput nodrag nopan nowheel" :class="{ expandedInput: expanded }" @keydown.capture="handleMentionKey" @click.capture="previewReference" />
     </teleport>
@@ -76,15 +76,110 @@ async function loadLibrary() {
   }
 }
 
+type CursorPoint = { gridIndex: number; childIndex: number; offset: number };
+const cursorSnapshot = ref<{ start: CursorPoint; end: CursorPoint }>();
+
+// ACT: 与 syncModel 相同的选区映射：把 DOM 选区端点换算成模型坐标（行、段、段内偏移）。
+// 弹窗打开后编辑器失焦、选区会丢，所以必须在点按钮时先快照。
+function captureCursor() {
+  const instance = sender;
+  if (!instance) return undefined;
+  const editor = instance.chatElement.richText;
+  const selection = instance.getSelection();
+  if (!editor.contains(selection.anchorNode) || !editor.contains(selection.focusNode)) return undefined;
+  const mapPoint = (node: Node | null, offset: number): CursorPoint | undefined => {
+    const gridIndex = instance.chatEditor.NODES.findIndex(grid => grid.$el.contains(node));
+    const grid = instance.chatEditor.NODES[gridIndex];
+    const childIndex = grid?.children.findIndex(child => child.$el.contains(node)) ?? -1;
+    const child = grid?.children[childIndex];
+    if (!child || (child.type !== "Write" && child.type !== "Input")) return undefined;
+    return { gridIndex, childIndex, offset };
+  };
+  const anchor = mapPoint(selection.anchorNode, selection.anchorOffset);
+  const focus = mapPoint(selection.focusNode, selection.focusOffset);
+  if (!anchor || !focus) return undefined;
+  const [start, end] = [anchor, focus].sort((a, b) => a.gridIndex - b.gridIndex || a.childIndex - b.childIndex || a.offset - b.offset);
+  return { start, end };
+}
+
+function openLibrary() {
+  cursorSnapshot.value = captureCursor();
+  libraryVisible.value = true;
+}
+
+// ACT: 把 insertTexts 插入快照光标处：光标所在段的文本在偏移处拆开，首行接前半、末行接后半；
+// 有选区时选区内容被替换。段结构交给 syncModel 的 normalizeModel 归一化，这里只拼原始 Write 段。
+function insertAtCursor(lines: AnyTagProps[][], cursor: { start: CursorPoint; end: CursorPoint }, insertTexts: string[]) {
+  const next = JSON.parse(JSON.stringify(lines)) as AnyTagProps[][];
+  const startLine = next[cursor.start.gridIndex];
+  const endLine = next[cursor.end.gridIndex];
+  const startTag = startLine?.[cursor.start.childIndex];
+  const endTag = endLine?.[cursor.end.childIndex];
+  if (!startLine || !endLine || startTag?.type !== "Write" && startTag?.type !== "Input" || endTag?.type !== "Write" && endTag?.type !== "Input") return undefined;
+  const before = (startTag.text ?? "").slice(0, cursor.start.offset);
+  const after = (endTag.text ?? "").slice(cursor.end.offset);
+  const head = startLine.slice(0, cursor.start.childIndex);
+  const tail = endLine.slice(cursor.end.childIndex + 1);
+  const built: AnyTagProps[][] = [];
+  if (insertTexts.length === 1) {
+    built.push([...head, { type: "Write", text: before + insertTexts[0] + after }, ...tail]);
+  } else {
+    built.push([...head, { type: "Write", text: before + insertTexts[0] }]);
+    for (let i = 1; i < insertTexts.length - 1; i++) built.push([{ type: "Write", text: insertTexts[i] }]);
+    built.push([{ type: "Write", text: insertTexts[insertTexts.length - 1] + after }, ...tail]);
+  }
+  next.splice(cursor.start.gridIndex, cursor.end.gridIndex - cursor.start.gridIndex + 1, ...built);
+  // 插入后光标应停在插入内容末尾：返回目标行与行内字符偏移（只统计 Write/Input 段文本）。
+  const headText = head.reduce((sum, tag) => sum + (tag.type === "Write" || tag.type === "Input" ? (tag.text ?? "").length : 0), 0);
+  const caret = insertTexts.length === 1
+    ? { gridIndex: cursor.start.gridIndex, offset: headText + before.length + insertTexts[0].length }
+    : { gridIndex: cursor.start.gridIndex + insertTexts.length - 1, offset: insertTexts[insertTexts.length - 1].length };
+  return { lines: next, caret };
+}
+
+function restoreCaret(caret: { gridIndex: number; offset: number }) {
+  const instance = sender;
+  const grid = instance?.chatEditor.NODES[caret.gridIndex];
+  if (!instance || !grid) return;
+  let remaining = caret.offset;
+  type textTag = Extract<typeof grid.children[number], { type: "Write" }> | Extract<typeof grid.children[number], { type: "Input" }>;
+  let lastTextTag: textTag | undefined;
+  for (const child of grid.children) {
+    if (child.type !== "Write" && child.type !== "Input") continue;
+    lastTextTag = child;
+    const length = (child.text ?? "").length;
+    if (remaining > length) {
+      remaining -= length;
+      continue;
+    }
+    const node = child.type === "Write" ? child.$el.children[0].firstChild : child.$el.children[0].children[0].firstChild;
+    if (node?.nodeType !== Node.TEXT_NODE) return;
+    child.focus(remaining);
+    instance.getSelection().setBaseAndExtent(node, remaining, node, remaining);
+    return;
+  }
+  if (lastTextTag) lastTextTag.focus(-1);
+}
+
 function confirmLibrary() {
   const selected = librarySelected.value;
   if (!selected.length) return;
-  const appended: AnyTagProps[][] = selected.flatMap(item =>
-    item.content.split("\n").map(line => [{ type: "Write", text: line }] as AnyTagProps[]));
-  // 当前为空时不保留空行，所选提示词直接成为内容；非空时按行追加到末尾。
+  const insertTexts = selected.flatMap(item => item.content.split("\n"));
+  libraryVisible.value = false;
+  const snapshot = cursorSnapshot.value;
+  cursorSnapshot.value = undefined;
+  // 有光标快照且内容非空时插入光标处；否则沿用原来的末尾追加。
+  if (snapshot && getPromptText(model.value).trim()) {
+    const inserted = insertAtCursor(sender?.getModel() ?? model.value, snapshot, insertTexts);
+    if (inserted) {
+      syncModel(inserted.lines);
+      void nextTick(() => restoreCaret(inserted.caret));
+      return;
+    }
+  }
+  const appended: AnyTagProps[][] = insertTexts.map(line => [{ type: "Write", text: line }] as AnyTagProps[]);
   const base: AnyTagProps[][] = getPromptText(model.value).trim() ? model.value : [];
   syncModel([...base, ...appended]);
-  libraryVisible.value = false;
 }
 const { nextZIndex } = useZIndex();
 const previewReferenceId = ref<string>();
