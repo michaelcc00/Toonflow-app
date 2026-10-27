@@ -4,7 +4,10 @@
       <div class="promptList">
         <div class="listHeader">
           <h4>常用提示词</h4>
-          <el-button :icon="IconPlus" aria-label="添加常用提示词" @click="openDialog()">添加</el-button>
+          <span class="listActions">
+            <el-button :icon="IconDownload" :disabled="!prompts.length" aria-label="导出全部常用提示词" @click="exportPrompts">导出</el-button>
+            <el-button :icon="IconPlus" aria-label="添加常用提示词" @click="openDialog()">添加</el-button>
+          </span>
         </div>
         <div v-for="item in prompts" :key="item.id" class="promptRow" @click="openDialog(item)">
           <div class="promptMain">
@@ -54,8 +57,9 @@
 <script setup lang="ts">
 import { computed, ref } from "vue";
 import { ElButton, ElDialog, ElEmpty, ElInput, ElMessage, ElMessageBox, ElOption, ElSelect, ElTag } from "element-plus";
-import { IconPencil, IconPlus, IconTrash } from "@tabler/icons-vue";
+import { IconDownload, IconPencil, IconPlus, IconTrash } from "@tabler/icons-vue";
 import { saveSettings, settings } from "@/stores/settings";
+import { saveTextFile } from "@/lib/saveTextFile";
 
 type PromptKind = "image" | "video" | "audio" | "agent";
 type LibraryPrompt = { id: string; title: string; content: string; type: PromptKind };
@@ -89,6 +93,17 @@ const editingId = ref("");
 const editingTitle = ref("");
 const editingContent = ref("");
 const editingType = ref<PromptKind>("image");
+
+async function exportPrompts() {
+  const payload = {
+    kind: "toonflow-prompt-library",
+    version: 1,
+    prompts: prompts.value.map(item => ({ title: item.title, content: item.content, type: item.type })),
+  };
+  const result = await saveTextFile("prompt-library.json", JSON.stringify(payload, null, 2), "常用提示词");
+  if (result === "saved") ElMessage.success("已导出全部常用提示词");
+  else if (result === "downloaded") ElMessage.success("已导出到浏览器下载目录");
+}
 
 async function save(next: LibraryPrompt[]) {
   if (saving.value) return;
@@ -151,6 +166,10 @@ async function removePrompt(item: LibraryPrompt) {
       margin-bottom: 8px;
       h4 {
         margin: 0;
+      }
+      .listActions {
+        display: flex;
+        gap: 8px;
       }
     }
     .promptRow {
