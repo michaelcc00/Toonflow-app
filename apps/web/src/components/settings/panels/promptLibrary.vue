@@ -6,6 +6,7 @@
           <h4>常用提示词</h4>
           <span class="listActions">
             <el-button :icon="IconDownload" :disabled="!prompts.length" aria-label="导出全部常用提示词" @click="exportPrompts">导出</el-button>
+            <el-button :icon="IconUpload" aria-label="导入常用提示词" @click="importPrompts">导入</el-button>
             <el-button :icon="IconPlus" aria-label="添加常用提示词" @click="openDialog()">添加</el-button>
           </span>
         </div>
@@ -57,9 +58,10 @@
 <script setup lang="ts">
 import { computed, ref } from "vue";
 import { ElButton, ElDialog, ElEmpty, ElInput, ElMessage, ElMessageBox, ElOption, ElSelect, ElTag } from "element-plus";
-import { IconDownload, IconPencil, IconPlus, IconTrash } from "@tabler/icons-vue";
+import { IconDownload, IconPencil, IconPlus, IconTrash, IconUpload } from "@tabler/icons-vue";
 import { saveSettings, settings } from "@/stores/settings";
 import { saveTextFile } from "@/lib/saveTextFile";
+import { pickTextFile } from "@/lib/pickTextFile";
 
 type PromptKind = "image" | "video" | "audio" | "agent";
 type LibraryPrompt = { id: string; title: string; content: string; type: PromptKind };
@@ -103,6 +105,44 @@ async function exportPrompts() {
   const result = await saveTextFile("prompt-library.json", JSON.stringify(payload, null, 2), "常用提示词");
   if (result === "saved") ElMessage.success("已导出全部常用提示词");
   else if (result === "downloaded") ElMessage.success("已导出到浏览器下载目录");
+}
+
+async function importPrompts() {
+  const file = await pickTextFile();
+  if (!file) return;
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(file.text);
+  } catch {
+    ElMessage.error("导入失败：文件不是有效的 JSON");
+    return;
+  }
+  const rawItems = Array.isArray(parsed) ? parsed : (parsed as { prompts?: unknown })?.prompts;
+  if (!Array.isArray(rawItems)) {
+    ElMessage.error("导入失败：文件格式不正确");
+    return;
+  }
+  let skipped = 0;
+  const imported: LibraryPrompt[] = [];
+  for (const entry of rawItems) {
+    if (!entry || typeof entry !== "object") { skipped++; continue; }
+    const raw = entry as { title?: unknown; content?: unknown; type?: unknown };
+    if (typeof raw.content !== "string" || !raw.content.trim()) { skipped++; continue; }
+    imported.push({
+      id: crypto.randomUUID(),
+      title: typeof raw.title === "string" ? raw.title : "",
+      content: raw.content,
+      type: raw.type === "video" || raw.type === "audio" || raw.type === "agent" ? raw.type : "image",
+    });
+  }
+  if (!imported.length) {
+    ElMessage.warning("没有可导入的常用提示词");
+    return;
+  }
+  try {
+    await save([...prompts.value, ...imported]);
+    ElMessage.success(`已导入 ${imported.length} 条常用提示词${skipped ? `，跳过 ${skipped} 条无效数据` : ""}`);
+  } catch { /* save 已提示错误 */ }
 }
 
 async function save(next: LibraryPrompt[]) {
