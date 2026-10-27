@@ -1,6 +1,7 @@
 <template>
   <div class="promptInputWrap nodrag nopan nowheel">
     <el-button v-if="expandable" class="expandButton" :icon="IconMaximize" text circle title="展开编辑提示词" aria-label="展开编辑提示词" @mousedown.prevent @click.stop="expanded = true" />
+    <el-button v-if="expandable && libraryType" class="libraryButton" :icon="IconBookmarks" text circle title="插入常用提示词" aria-label="插入常用提示词" @mousedown.prevent @click.stop="libraryVisible = true" />
     <teleport :to="expandedTarget || 'body'" :disabled="!expanded || !expandedTarget">
       <div ref="senderElement" class="promptInput nodrag nopan nowheel" :class="{ expandedInput: expanded }" @keydown.capture="handleMentionKey" @click.capture="previewReference" />
     </teleport>
@@ -8,22 +9,83 @@
   <el-dialog v-if="expandable" v-model="expanded" class="promptEditorDialog" title="生成提示词" width="80%" alignCenter appendToBody :closeOnClickModal="false" @opened="sender?.focus('mark')" @close="expanded = false" @closed="sender?.focus('mark')">
     <div ref="expandedTarget" class="promptExpandedTarget nodrag nopan nowheel" @pointerdown.stop @mousedown.stop @dblclick.stop />
   </el-dialog>
+  <el-dialog v-if="libraryType" v-model="libraryVisible" title="选择常用提示词" width="min(560px, calc(100vw - 32px))" alignCenter appendToBody :closeOnClickModal="false" @open="loadLibrary">
+    <div v-loading="libraryLoading" class="libraryList">
+      <label v-for="item in libraryItems" :key="item.id" class="libraryItem">
+        <el-checkbox v-model="libraryChecked[item.id]" :aria-label="`选择 ${item.title || '未命名'}`" />
+        <span class="libraryMain">
+          <span class="libraryTitle">{{ item.title || "未命名" }}</span>
+          <span class="libraryContent">{{ item.content }}</span>
+        </span>
+      </label>
+      <el-empty v-if="!libraryLoading && !libraryItems.length" :description="libraryError || '暂无此类常用提示词，可在设置 → 提示词 → 常用提示词中添加'" :imageSize="60" />
+    </div>
+    <template #footer>
+      <el-button @click="libraryVisible = false">取消</el-button>
+      <el-button type="primary" :disabled="!librarySelected.length" @click="confirmLibrary">插入所选（{{ librarySelected.length }}）</el-button>
+    </template>
+  </el-dialog>
   <el-image-viewer v-if="previewUrl" :urlList="[previewUrl]" teleported @close="previewReferenceId = undefined" />
 </template>
 
 <script setup lang="ts">
 import { computed, nextTick, ref, watch } from "vue";
-import { ElButton, ElDialog, ElImageViewer, useZIndex } from "element-plus";
-import { IconMaximize } from "@tabler/icons-vue";
+import { ElButton, ElCheckbox, ElDialog, ElEmpty, ElImageViewer, useZIndex } from "element-plus";
+import { IconBookmarks, IconMaximize } from "@tabler/icons-vue";
 import xSender, { type AnyTagProps, type MentionItem } from "x-sender";
 import "x-sender/lib/XSender.css";
 
-const props = defineProps<{ references: (MentionItem & { value: string; mediaType?: string })[]; expandable?: boolean; placeholder?: string }>();
+const props = defineProps<{ references: (MentionItem & { value: string; mediaType?: string })[]; expandable?: boolean; placeholder?: string; libraryType?: "image" | "video" | "audio" }>();
 const model = defineModel<AnyTagProps[][]>({ required: true });
 const text = defineModel<string>("text", { default: "" });
 const senderElement = ref<HTMLElement>();
 const expanded = ref(false);
 const expandedTarget = ref<HTMLElement>();
+
+type LibraryPrompt = { id: string; title: string; content: string; type: "image" | "video" | "audio" };
+const libraryVisible = ref(false);
+const libraryLoading = ref(false);
+const libraryError = ref("");
+const libraryItems = ref<LibraryPrompt[]>([]);
+const libraryChecked = ref<Record<string, boolean>>({});
+const librarySelected = computed(() => libraryItems.value.filter(item => libraryChecked.value[item.id]));
+
+// ACT: 每次打开都重新读取设置，用户可能刚在设置里增删了常用提示词；只显示与当前节点类型一致的。
+async function loadLibrary() {
+  const kind = props.libraryType;
+  if (!kind) return;
+  libraryLoading.value = true;
+  libraryError.value = "";
+  libraryChecked.value = {};
+  try {
+    const response = await fetch("/api/settings/get", { headers: { "x-toonflow-workspace": "1" } });
+    const result = await response.json() as { code: number; data?: { promptLibrary?: unknown } };
+    if (result.code !== 200) throw new Error("读取常用提示词失败");
+    const raw = Array.isArray(result.data?.promptLibrary) ? result.data.promptLibrary : [];
+    libraryItems.value = raw.flatMap((entry) => {
+      if (!entry || typeof entry !== "object") return [];
+      const item = entry as Partial<LibraryPrompt>;
+      if (typeof item.id !== "string" || typeof item.content !== "string" || item.type !== kind) return [];
+      return [{ id: item.id, title: typeof item.title === "string" ? item.title : "", content: item.content, type: kind }];
+    });
+  } catch (error) {
+    libraryError.value = error instanceof Error ? error.message : "读取常用提示词失败";
+    libraryItems.value = [];
+  } finally {
+    libraryLoading.value = false;
+  }
+}
+
+function confirmLibrary() {
+  const selected = librarySelected.value;
+  if (!selected.length) return;
+  const appended: AnyTagProps[][] = selected.flatMap(item =>
+    item.content.split("\n").map(line => [{ type: "Write", text: line }] as AnyTagProps[]));
+  // 当前为空时不保留空行，所选提示词直接成为内容；非空时按行追加到末尾。
+  const base: AnyTagProps[][] = getPromptText(model.value).trim() ? model.value : [];
+  syncModel([...base, ...appended]);
+  libraryVisible.value = false;
+}
 const { nextZIndex } = useZIndex();
 const previewReferenceId = ref<string>();
 const previewUrl = computed(() => String(props.references.find(item => item.id === previewReferenceId.value)?.avatar ?? ""));
@@ -342,6 +404,17 @@ function handleMentionKey(event: KeyboardEvent) {
     color: var(--el-text-color-secondary);
   }
 
+  .libraryButton {
+    position: absolute;
+    top: 30px;
+    right: 10px;
+    z-index: 11;
+    width: 24px;
+    height: 24px;
+    padding: 4px;
+    color: var(--el-text-color-secondary);
+  }
+
   &:has(.expandButton) .promptInput {
     :deep(.chat-rich-text > [contenteditable]),
     :deep(.chat-placeholder-wrap) { padding-right: 34px; }
@@ -356,6 +429,47 @@ function handleMentionKey(event: KeyboardEvent) {
 
 :global(.promptEditorDialog .el-dialog__body) { flex: 1; min-height: 0; }
 .promptExpandedTarget { height: 100%; }
+
+.libraryList {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-height: 120px;
+  max-height: 50dvh;
+  overflow-y: auto;
+
+  .libraryItem {
+    display: flex;
+    gap: 10px;
+    align-items: flex-start;
+    padding: 10px 12px;
+    border: 1px solid var(--el-border-color);
+    border-radius: 8px;
+    cursor: pointer;
+
+    &:hover { border-color: var(--el-color-primary); }
+
+    .libraryMain {
+      display: flex;
+      flex: 1;
+      min-width: 0;
+      flex-direction: column;
+      gap: 2px;
+
+      .libraryTitle { font-weight: 600; }
+      .libraryContent {
+        display: -webkit-box;
+        overflow: hidden;
+        color: var(--el-text-color-secondary);
+        font-size: 13px;
+        line-height: 1.5;
+        white-space: pre-line;
+        -webkit-box-orient: vertical;
+        -webkit-line-clamp: 3;
+      }
+    }
+  }
+}
 
 .promptInput,
 :global(.textNodeMentions) {
