@@ -52,6 +52,7 @@ import {
   IconSubtitlesAi,
   IconDevices,
   IconWand,
+  IconNotes,
 } from "@tabler/icons-vue";
 
 const settingsPanels = [
@@ -69,7 +70,14 @@ const settingsPanels = [
     id: "promptOptimize",
     label: "提示词优化",
     icon: IconWand,
+    groupLabel: "提示词",
     component: defineAsyncComponent(() => import("./panels/promptOptimize.vue")),
+  },
+  {
+    id: "promptLibrary",
+    label: "常用提示词",
+    icon: IconNotes,
+    component: defineAsyncComponent(() => import("./panels/promptLibrary.vue")),
   },
   {
     id: "pluginMarket",
