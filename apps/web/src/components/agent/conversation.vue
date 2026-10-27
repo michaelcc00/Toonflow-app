@@ -142,12 +142,31 @@
             </div>
           </div>
         </el-popover>
+        <el-button class="contextButton" text circle :disabled="locked" aria-label="插入常用提示词" title="插入常用提示词" @click="libraryVisible = true">
+          <icon-bookmarks :size="14" />
+        </el-button>
         <el-button class="sendButton" type="primary" circle :disabled="!busy && locked" :aria-label="busy ? '停止生成' : editingId ? '重发消息' : '发送消息'" :title="busy ? '停止生成' : editingId ? '重发消息' : '发送消息'" @click="busy ? stopMessage() : submitMessage()">
           <icon-player-stop-filled v-if="busy" :size="14" />
           <icon-arrow-up v-else :size="16" />
         </el-button>
       </div>
     </div>
+    <el-dialog v-model="libraryVisible" title="选择常用提示词" width="min(560px, calc(100vw - 32px))" alignCenter appendToBody :closeOnClickModal="false" @open="libraryChecked = {}">
+      <div class="promptPickerList">
+        <label v-for="item in agentPrompts" :key="item.id" class="promptPickerItem">
+          <el-checkbox v-model="libraryChecked[item.id]" :aria-label="`选择 ${item.title || '未命名'}`" />
+          <span class="promptPickerMain">
+            <span class="promptPickerTitle">{{ item.title || "未命名" }}</span>
+            <span class="promptPickerContent">{{ item.content }}</span>
+          </span>
+        </label>
+        <el-empty v-if="!agentPrompts.length" description="暂无智能体常用提示词，可在设置 → 提示词 → 常用提示词中添加" :imageSize="60" />
+      </div>
+      <template #footer>
+        <el-button @click="libraryVisible = false">取消</el-button>
+        <el-button type="primary" :disabled="!librarySelected.length" @click="confirmLibrary">插入所选（{{ librarySelected.length }}）</el-button>
+      </template>
+    </el-dialog>
   </div>
 </template>
 
@@ -159,7 +178,7 @@ import axios from "axios";
 import {
   IconArrowUp, IconArrowDown, IconAtom, IconCopy,
   IconCircleDashed, IconPencil, IconPlayerStopFilled, IconX, IconLoader2,
-  IconTrash, IconLayoutGrid, IconMovie, IconPhoto, IconArrowUpRight, IconUsersGroup,
+  IconTrash, IconLayoutGrid, IconMovie, IconPhoto, IconArrowUpRight, IconUsersGroup, IconBookmarks,
 } from "@tabler/icons-vue";
 import { ElMessage } from "element-plus";
 import logoUrl from "@toonflow/assets/logo.svg";
@@ -175,7 +194,7 @@ import { createPastedTextFile, readTextAttachment } from "./textAttachments";
 import useWorkspaceFiles from "@/lib/workspaceFiles";
 import { writeClipboardText } from "@/lib/clipboard";
 import anonymousData from "@/lib/anonymousData";
-import { modelChoices } from "@/stores/settings";
+import { modelChoices, settings } from "@/stores/settings";
 import { useWorkspaceStore } from "@/stores/workspace";
 import type { AgentAttachment, AgentConversation, AgentMessage } from "./types";
 import type { AgentEvent, AgentMention, AgentToolCall } from "@toonflow/server/agent/types";
@@ -459,6 +478,34 @@ async function fillPrompt(prompt: string) {
   if (!instance || locked.value) return;
   draftMentions.value = [];
   await instance.reset({ clearHistory: false, chatNode: [[{ type: "Write", text: prompt }]] });
+  if (sender === instance) instance.focus("last");
+}
+
+type AgentLibraryPrompt = { id: string; title: string; content: string };
+const libraryVisible = ref(false);
+const libraryChecked = ref<Record<string, boolean>>({});
+const agentPrompts = computed<AgentLibraryPrompt[]>(() => {
+  const value = settings.value.promptLibrary;
+  if (!Array.isArray(value)) return [];
+  return value.flatMap((entry) => {
+    if (!entry || typeof entry !== "object") return [];
+    const item = entry as { id?: unknown; title?: unknown; content?: unknown; type?: unknown };
+    if (typeof item.id !== "string" || typeof item.content !== "string" || item.type !== "agent") return [];
+    return [{ id: item.id, title: typeof item.title === "string" ? item.title : "", content: item.content }];
+  });
+});
+const librarySelected = computed(() => agentPrompts.value.filter(item => libraryChecked.value[item.id]));
+
+async function confirmLibrary() {
+  const instance = sender;
+  const selected = librarySelected.value;
+  if (!instance || locked.value || !selected.length) return;
+  libraryVisible.value = false;
+  const appended: AnyTagProps[][] = selected.flatMap(item =>
+    item.content.split("\n").map(text => [{ type: "Write", text }] as AnyTagProps[]));
+  // 当前为空时不保留空行，所选提示词直接成为内容；非空时按行追加到末尾。
+  const base: AnyTagProps[][] = getDraftContent().trim() ? instance.getModel() : [];
+  await instance.reset({ clearHistory: false, chatNode: [...base, ...appended] });
   if (sender === instance) instance.focus("last");
 }
 
@@ -1226,8 +1273,7 @@ watch(() => !props.initialSession?.parentFile && !!workspaceStore.pendingAgentMe
         height: 34px;
         border: none;
         transform: translateY(-2px);
-      }
-    }
+      }    }
   }
 
 }
@@ -1262,6 +1308,47 @@ watch(() => !props.initialSession?.parentFile && !!workspaceStore.pendingAgentMe
     .contextHint {
       color: var(--el-text-color-secondary);
       font-size: 12px;
+    }
+  }
+}
+
+.promptPickerList {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  min-height: 120px;
+  max-height: 50dvh;
+  overflow-y: auto;
+
+  .promptPickerItem {
+    display: flex;
+    gap: 10px;
+    align-items: flex-start;
+    padding: 10px 12px;
+    border: 1px solid var(--el-border-color);
+    border-radius: 8px;
+    cursor: pointer;
+
+    &:hover { border-color: var(--el-color-primary); }
+
+    .promptPickerMain {
+      display: flex;
+      flex: 1;
+      min-width: 0;
+      flex-direction: column;
+      gap: 2px;
+
+      .promptPickerTitle { font-weight: 600; }
+      .promptPickerContent {
+        display: -webkit-box;
+        overflow: hidden;
+        color: var(--el-text-color-secondary);
+        font-size: 13px;
+        line-height: 1.5;
+        white-space: pre-line;
+        -webkit-box-orient: vertical;
+        -webkit-line-clamp: 3;
+      }
     }
   }
 }
