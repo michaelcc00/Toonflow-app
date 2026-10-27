@@ -53,7 +53,6 @@
       :closeOnClickModal="false">
       <div class="promptDialog">
         <el-input v-model="editingName" placeholder="名称" aria-label="提示词名称" />
-        <p class="description">可用占位符：&#123;&#123;lang&#125;&#125;（输出语言）、&#123;&#123;mediaNote&#125;&#125;（参考图说明）、&#123;&#123;imageCount&#125;&#125;（参考图数量）。</p>
         <el-input
           v-model="editingContent"
           type="textarea"
@@ -304,11 +303,6 @@ onMounted(loadModels);
     display: flex;
     flex-direction: column;
     gap: 8px;
-    .description {
-      font-size: 12px;
-      color: var(--el-text-color-secondary);
-      margin: 0;
-    }
   }
 }
 </style>
