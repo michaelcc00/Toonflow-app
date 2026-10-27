@@ -19,7 +19,7 @@
         </div>
         <el-empty v-if="!prompts.length" description="暂无常用提示词，点击添加" :imageSize="60" />
       </div>
-      <p class="libraryHint">在图片、视频、音频生成节点的提示词输入框右上角可以打开常用提示词列表，按节点类型自动过滤，多选后插入到输入框。</p>
+      <p class="libraryHint">在图片、视频、音频生成节点的提示词输入框右上角，以及智能体对话框下方，都可以打开常用提示词列表，按类型自动过滤，多选后插入。</p>
     </section>
     <el-dialog
       v-model="dialogVisible"
@@ -34,6 +34,7 @@
           <el-option label="图片生成" value="image" />
           <el-option label="视频生成" value="video" />
           <el-option label="音频生成" value="audio" />
+          <el-option label="智能体" value="agent" />
         </el-select>
         <el-input
           v-model="editingContent"
@@ -56,13 +57,14 @@ import { ElButton, ElDialog, ElEmpty, ElInput, ElMessage, ElMessageBox, ElOption
 import { IconPencil, IconPlus, IconTrash } from "@tabler/icons-vue";
 import { saveSettings, settings } from "@/stores/settings";
 
-type PromptKind = "image" | "video" | "audio";
+type PromptKind = "image" | "video" | "audio" | "agent";
 type LibraryPrompt = { id: string; title: string; content: string; type: PromptKind };
 
-const kindTags: Record<PromptKind, { label: string; tagType: "success" | "warning" | "info" }> = {
+const kindTags: Record<PromptKind, { label: string; tagType: "success" | "warning" | "info" | "primary" }> = {
   image: { label: "图片生成", tagType: "success" },
   video: { label: "视频生成", tagType: "warning" },
   audio: { label: "音频生成", tagType: "info" },
+  agent: { label: "智能体", tagType: "primary" },
 };
 
 const prompts = computed<LibraryPrompt[]>(() => {
@@ -76,7 +78,7 @@ const prompts = computed<LibraryPrompt[]>(() => {
       id: raw.id,
       title: typeof raw.title === "string" ? raw.title : "",
       content: raw.content,
-      type: raw.type === "video" || raw.type === "audio" ? raw.type : "image",
+      type: raw.type === "video" || raw.type === "audio" || raw.type === "agent" ? raw.type : "image",
     }];
   });
 });
