@@ -24,7 +24,7 @@
           <el-space class="itemActions" wrap>
             <el-button v-if="item.modelsUrl" text :icon="IconDownload" :loading="fetchingFile === item.fileName" :disabled="!!fetchingFile || !!deletingFile || !!item.loadError || !item.revision" @click="fetchModels(item)">获取模型</el-button>
             <el-button text :icon="IconEdit" :disabled="!!fetchingFile || !!deletingFile || !!item.loadError" @click="editProvider(item)">编辑模型</el-button>
-            <el-button text :icon="IconUpload" :disabled="!!fetchingFile || !!deletingFile || !!item.loadError" @click="exportProvider(item)">导出</el-button>
+            <el-button text :icon="IconUpload" :disabled="!!fetchingFile || !!deletingFile || !!item.loadError" @click="openExport(item)">导出</el-button>
             <el-popconfirm title="确定删除此供应商及其模型？" confirmButtonText="删除" cancelButtonText="取消" @confirm="deleteProvider(item)">
               <template #reference><el-button text type="danger" :icon="IconTrash" :loading="deletingFile === item.fileName" :disabled="!!fetchingFile || !!deletingFile || !item.revision">删除</el-button></template>
             </el-popconfirm>
@@ -40,6 +40,17 @@
     </div>
     <component :is="mediaProviderDialog" v-model="providerDialogVisible" :mode="addMode" @added="saveProviderItem" />
     <component :is="editProviderDialog" v-model="editorVisible" :provider="editingProvider" @saved="saveProviderItem" />
+    <el-dialog v-model="exportVisible" title="导出供应商" width="min(440px, calc(100vw - 32px))" alignCenter appendToBody>
+      <div class="exportDialog">
+        <p class="exportTarget">{{ exportTarget?.label }}</p>
+        <el-checkbox v-model="exportIncludeApiKey">包含 API Key</el-checkbox>
+        <p v-if="exportIncludeApiKey" class="exportWarning">导出文件将包含该供应商的 API Key，请勿外传。</p>
+      </div>
+      <template #footer>
+        <el-button @click="exportVisible = false">取消</el-button>
+        <el-button type="primary" @click="confirmExport">导出</el-button>
+      </template>
+    </el-dialog>
   </div>
 </template>
 
@@ -168,14 +179,31 @@ function saveProviderItem(provider: MediaProvider) {
   else providers.value.splice(index, 1, provider);
 }
 
-async function exportProvider(provider: MediaProvider) {
+const exportVisible = ref(false);
+const exportTarget = ref<MediaProvider>();
+const exportIncludeApiKey = ref(false);
+
+function openExport(provider: MediaProvider) {
+  exportTarget.value = provider;
+  exportIncludeApiKey.value = false;
+  exportVisible.value = true;
+}
+
+function confirmExport() {
+  const provider = exportTarget.value;
+  exportVisible.value = false;
+  if (provider) void exportProvider(provider, exportIncludeApiKey.value);
+}
+
+async function exportProvider(provider: MediaProvider, includeApiKey = false) {
   try {
     const { data } = await axios.get<{ code: number; data: { fileName: string; source: string } }>(
       "/api/providers/media/source", { params: { fileName: provider.fileName } });
     if (data.code !== 200 || !data.data?.source) throw new Error("读取插件源码失败");
     const configs = settings.value.mediaProviderConfigs as Record<string, Record<string, unknown>> | undefined;
     const config = { ...(configs?.[provider.id] ?? {}) };
-    delete config.apiKey;
+    if (!includeApiKey) delete config.apiKey;
+    const keyNote = includeApiKey ? "含 API Key" : "不含 API Key";
     const payload = {
       kind: "toonflow-media-provider",
       version: 1,
@@ -196,7 +224,7 @@ async function exportProvider(provider: MediaProvider) {
         const writable = await handle.createWritable();
         await writable.write(content);
         await writable.close();
-        ElMessage.success("已导出（不含 API Key）");
+        ElMessage.success(`已导出（${keyNote}）`);
         return;
       } catch (error) {
         if (error instanceof DOMException && error.name === "AbortError") return;
@@ -212,7 +240,7 @@ async function exportProvider(provider: MediaProvider) {
     a.click();
     a.remove();
     setTimeout(() => URL.revokeObjectURL(url), 1000);
-    ElMessage.success("已导出到浏览器下载目录（不含 API Key）");
+    ElMessage.success(`已导出到浏览器下载目录（${keyNote}）`);
   } catch (error) {
     ElMessage.error(axios.isAxiosError(error) ? error.response?.data?.message || error.message : "导出失败");
   }
@@ -257,3 +285,22 @@ async function onImportFile(event: Event) {
 </script>
 
 <style lang="scss" scoped src="../../providerList.scss"></style>
+
+<style lang="scss" scoped>
+.exportDialog {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+
+  .exportTarget {
+    margin: 0;
+    font-weight: 600;
+  }
+
+  .exportWarning {
+    margin: 0;
+    color: var(--el-color-warning);
+    font-size: 13px;
+  }
+}
+</style>
