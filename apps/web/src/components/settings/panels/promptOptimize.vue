@@ -30,7 +30,10 @@
       <div class="promptList">
         <div class="listHeader">
           <h4>优化提示词</h4>
-          <el-button :icon="IconPlus" aria-label="添加提示词" @click="openDialog()">添加</el-button>
+          <span class="listActions">
+            <el-button :icon="IconDownload" :disabled="!config.prompts.length" aria-label="导出全部提示词" @click="exportPrompts">导出</el-button>
+            <el-button :icon="IconPlus" aria-label="添加提示词" @click="openDialog()">添加</el-button>
+          </span>
         </div>
         <div v-for="item in config.prompts" :key="item.id" class="promptRow" :class="{ locked: item.locked }" @click="item.locked ? undefined : openDialog(item)">
           <span class="promptName">{{ item.name || "未命名" }}</span>
@@ -72,8 +75,9 @@
 import { computed, onMounted, ref } from "vue";
 import axios from "axios";
 import { ElAlert, ElButton, ElDialog, ElEmpty, ElInput, ElMessage, ElOption, ElSelect, ElSwitch, ElTag } from "element-plus";
-import { IconPlus, IconTrash } from "@tabler/icons-vue";
+import { IconDownload, IconPlus, IconTrash } from "@tabler/icons-vue";
 import { saveSettings, settings } from "@/stores/settings";
+import { saveTextFile } from "@/lib/saveTextFile";
 
 interface AiModelOption {
   providerId: string;
@@ -174,6 +178,17 @@ async function loadModels() {
   }
 }
 
+async function exportPrompts() {
+  const payload = {
+    kind: "toonflow-prompt-optimize",
+    version: 1,
+    prompts: config.value.prompts.map(p => ({ name: p.name, content: p.content })),
+  };
+  const result = await saveTextFile("prompt-optimize-prompts.json", JSON.stringify(payload, null, 2), "提示词优化");
+  if (result === "saved") ElMessage.success("已导出全部提示词");
+  else if (result === "downloaded") ElMessage.success("已导出到浏览器下载目录");
+}
+
 async function save(patch: Partial<OptimizeConfig>) {
   if (saving.value) return;
   saving.value = true;
@@ -265,6 +280,10 @@ onMounted(loadModels);
       margin-bottom: 8px;
       h4 {
         margin: 0;
+      }
+      .listActions {
+        display: flex;
+        gap: 8px;
       }
     }
     .promptRow {
