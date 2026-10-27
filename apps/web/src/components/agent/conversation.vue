@@ -142,7 +142,7 @@
             </div>
           </div>
         </el-popover>
-        <el-button class="contextButton" text circle :disabled="locked" aria-label="插入常用提示词" title="插入常用提示词" @click="libraryVisible = true">
+        <el-button class="contextButton" text circle :disabled="locked" aria-label="插入常用提示词" title="插入常用提示词" @mousedown.prevent @click="openLibrary">
           <icon-bookmarks :size="14" />
         </el-button>
         <el-button class="sendButton" type="primary" circle :disabled="!busy && locked" :aria-label="busy ? '停止生成' : editingId ? '重发消息' : '发送消息'" :title="busy ? '停止生成' : editingId ? '重发消息' : '发送消息'" @click="busy ? stopMessage() : submitMessage()">
@@ -496,14 +496,106 @@ const agentPrompts = computed<AgentLibraryPrompt[]>(() => {
 });
 const librarySelected = computed(() => agentPrompts.value.filter(item => libraryChecked.value[item.id]));
 
+type LibraryCursorPoint = { gridIndex: number; childIndex: number; offset: number };
+let libraryCursor: { start: LibraryCursorPoint; end: LibraryCursorPoint } | undefined;
+
+// ACT: 把 DOM 选区端点换算成模型坐标（行、段、段内偏移）；弹窗打开后选区会丢，点按钮时先快照。
+function captureLibraryCursor() {
+  const instance = sender;
+  if (!instance) return undefined;
+  const editor = instance.chatElement.richText;
+  const selection = instance.getSelection();
+  if (!editor.contains(selection.anchorNode) || !editor.contains(selection.focusNode)) return undefined;
+  const mapPoint = (node: Node | null, offset: number): LibraryCursorPoint | undefined => {
+    const gridIndex = instance.chatEditor.NODES.findIndex(grid => grid.$el.contains(node));
+    const grid = instance.chatEditor.NODES[gridIndex];
+    const childIndex = grid?.children.findIndex(child => child.$el.contains(node)) ?? -1;
+    const child = grid?.children[childIndex];
+    if (!child || (child.type !== "Write" && child.type !== "Input")) return undefined;
+    return { gridIndex, childIndex, offset };
+  };
+  const anchor = mapPoint(selection.anchorNode, selection.anchorOffset);
+  const focus = mapPoint(selection.focusNode, selection.focusOffset);
+  if (!anchor || !focus) return undefined;
+  const [start, end] = [anchor, focus].sort((a, b) => a.gridIndex - b.gridIndex || a.childIndex - b.childIndex || a.offset - b.offset);
+  return { start, end };
+}
+
+function openLibrary() {
+  libraryCursor = captureLibraryCursor();
+  libraryVisible.value = true;
+}
+
+// ACT: 把 insertTexts 插入快照光标处：光标所在段文本在偏移处拆开，首行接前半、末行接后半；有选区时替换选区。
+function insertLibraryAtCursor(lines: AnyTagProps[][], cursor: { start: LibraryCursorPoint; end: LibraryCursorPoint }, insertTexts: string[]) {
+  const next = JSON.parse(JSON.stringify(lines)) as AnyTagProps[][];
+  const startLine = next[cursor.start.gridIndex];
+  const endLine = next[cursor.end.gridIndex];
+  const startTag = startLine?.[cursor.start.childIndex];
+  const endTag = endLine?.[cursor.end.childIndex];
+  if (!startLine || !endLine || (startTag?.type !== "Write" && startTag?.type !== "Input") || (endTag?.type !== "Write" && endTag?.type !== "Input")) return undefined;
+  const before = (startTag.text ?? "").slice(0, cursor.start.offset);
+  const after = (endTag.text ?? "").slice(cursor.end.offset);
+  const head = startLine.slice(0, cursor.start.childIndex);
+  const tail = endLine.slice(cursor.end.childIndex + 1);
+  const built: AnyTagProps[][] = [];
+  if (insertTexts.length === 1) {
+    built.push([...head, { type: "Write", text: before + insertTexts[0] + after }, ...tail]);
+  } else {
+    built.push([...head, { type: "Write", text: before + insertTexts[0] }]);
+    for (let i = 1; i < insertTexts.length - 1; i++) built.push([{ type: "Write", text: insertTexts[i] }]);
+    built.push([{ type: "Write", text: insertTexts[insertTexts.length - 1] + after }, ...tail]);
+  }
+  next.splice(cursor.start.gridIndex, cursor.end.gridIndex - cursor.start.gridIndex + 1, ...built);
+  const headText = head.reduce((sum, tag) => sum + (tag.type === "Write" || tag.type === "Input" ? (tag.text ?? "").length : 0), 0);
+  const caret = insertTexts.length === 1
+    ? { gridIndex: cursor.start.gridIndex, offset: headText + before.length + insertTexts[0].length }
+    : { gridIndex: cursor.start.gridIndex + insertTexts.length - 1, offset: insertTexts[insertTexts.length - 1].length };
+  return { lines: next, caret };
+}
+
+function restoreLibraryCaret(caret: { gridIndex: number; offset: number }) {
+  const instance = sender;
+  const grid = instance?.chatEditor.NODES[caret.gridIndex];
+  if (!instance || !grid) return;
+  let remaining = caret.offset;
+  type textTag = Extract<typeof grid.children[number], { type: "Write" }> | Extract<typeof grid.children[number], { type: "Input" }>;
+  let lastTextTag: textTag | undefined;
+  for (const child of grid.children) {
+    if (child.type !== "Write" && child.type !== "Input") continue;
+    lastTextTag = child;
+    const length = (child.text ?? "").length;
+    if (remaining > length) {
+      remaining -= length;
+      continue;
+    }
+    const node = child.type === "Write" ? child.$el.children[0].firstChild : child.$el.children[0].children[0].firstChild;
+    if (node?.nodeType !== Node.TEXT_NODE) return;
+    child.focus(remaining);
+    instance.getSelection().setBaseAndExtent(node, remaining, node, remaining);
+    return;
+  }
+  if (lastTextTag) lastTextTag.focus(-1);
+}
+
 async function confirmLibrary() {
   const instance = sender;
   const selected = librarySelected.value;
   if (!instance || locked.value || !selected.length) return;
   libraryVisible.value = false;
-  const appended: AnyTagProps[][] = selected.flatMap(item =>
-    item.content.split("\n").map(text => [{ type: "Write", text }] as AnyTagProps[]));
-  // 当前为空时不保留空行，所选提示词直接成为内容；非空时按行追加到末尾。
+  const insertTexts = selected.flatMap(item => item.content.split("\n"));
+  const cursor = libraryCursor;
+  libraryCursor = undefined;
+  // 有光标快照且草稿非空时插入光标处；否则沿用原来的末尾追加。
+  if (cursor && getDraftContent().trim()) {
+    const inserted = insertLibraryAtCursor(instance.getModel(), cursor, insertTexts);
+    if (inserted) {
+      await instance.reset({ clearHistory: false, chatNode: inserted.lines });
+      if (sender === instance) restoreLibraryCaret(inserted.caret);
+      return;
+    }
+  }
+  const appended: AnyTagProps[][] = insertTexts.map(text => [{ type: "Write", text }] as AnyTagProps[]);
   const base: AnyTagProps[][] = getDraftContent().trim() ? instance.getModel() : [];
   await instance.reset({ clearHistory: false, chatNode: [...base, ...appended] });
   if (sender === instance) instance.focus("last");
