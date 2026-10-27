@@ -38,12 +38,49 @@ async function readClipboardFile(path: string) {
   return { name: basename(path), mimeType, data: bytes.toString("base64") };
 }
 
+// ACT: Windows 原生剪贴板图像常是无文件头的 DIB，补上 14 字节 BITMAPFILEHEADER 组成合法 BMP。
+function dibToBmp(dib: Buffer) {
+  const headerSize = dib.readUInt32LE(0);
+  const bitCount = headerSize === 12 ? dib.readUInt16LE(10) : dib.readUInt16LE(14);
+  const compression = headerSize === 12 ? 0 : dib.readUInt32LE(16);
+  const colorsUsed = headerSize >= 40 ? dib.readUInt32LE(32) : 0;
+  const paletteBytes = bitCount <= 8
+    ? (colorsUsed || 2 ** bitCount) * (headerSize === 12 ? 3 : 4)
+    : compression === 3 ? 12 : 0;
+  const dataOffset = 14 + headerSize + paletteBytes;
+  const header = Buffer.alloc(14);
+  header.write("BM", 0, "ascii");
+  header.writeUInt32LE(dib.length + 14, 2);
+  header.writeUInt32LE(dataOffset, 10);
+  return Buffer.concat([header, dib]);
+}
+
+// ACT: 桌面运行时返回的剪贴板图像字节不保证是 PNG，按文件头嗅探真实格式并纠正 mime 与扩展名，否则浏览器无法解码预览。
+function normalizeClipboardImage(bytes: Uint8Array) {
+  const data = Buffer.from(bytes);
+  if (data.length >= 4 && data.readUInt32BE(0) === 0x89504e47) return { data, mimeType: "image/png", extension: "png" };
+  if (data.length >= 3 && data[0] === 0xff && data[1] === 0xd8 && data[2] === 0xff) return { data, mimeType: "image/jpeg", extension: "jpg" };
+  if (data.length >= 3 && data.toString("ascii", 0, 3) === "GIF") return { data, mimeType: "image/gif", extension: "gif" };
+  if (data.length >= 12 && data.toString("ascii", 0, 4) === "RIFF" && data.toString("ascii", 8, 12) === "WEBP") return { data, mimeType: "image/webp", extension: "webp" };
+  if (data.length >= 2 && data.toString("ascii", 0, 2) === "BM") return { data, mimeType: "image/bmp", extension: "bmp" };
+  const headerSize = data.length >= 4 ? data.readUInt32LE(0) : 0;
+  if (headerSize === 40 || headerSize === 108 || headerSize === 124 || headerSize === 12) {
+    return { data: dibToBmp(data), mimeType: "image/bmp", extension: "bmp" };
+  }
+  return { data, mimeType: "image/png", extension: "png" };
+}
+
 // ACT: 读取也使用 POST，复用 desktopRequest 的同源校验。
 export default Router().post("/", validateFields({ format: z.enum(["image", "files"]).optional() }), async (req, res) => {
   const desktop = u.desktop.getDesktopRuntime(req);
   if (req.body.format === "image") {
     const image = desktop.readClipboardImage();
-    res.json(success({ image: image ? Buffer.from(image).toString("base64") : null }));
+    if (!image) {
+      res.json(success({ image: null, mimeType: "image/png" }));
+      return;
+    }
+    const normalized = normalizeClipboardImage(image);
+    res.json(success({ image: normalized.data.toString("base64"), mimeType: normalized.mimeType }));
     return;
   }
   if (req.body.format === "files") {
@@ -55,7 +92,10 @@ export default Router().post("/", validateFields({ format: z.enum(["image", "fil
     }
     if (!files.length) {
       const image = desktop.readClipboardImage();
-      if (image) files.push({ name: "clipboard-image.png", mimeType: "image/png", data: Buffer.from(image).toString("base64") });
+      if (image) {
+        const normalized = normalizeClipboardImage(image);
+        files.push({ name: `clipboard-image.${normalized.extension}`, mimeType: normalized.mimeType, data: normalized.data.toString("base64") });
+      }
     }
     res.json(success({ files }));
     return;
