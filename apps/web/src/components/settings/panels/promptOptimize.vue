@@ -32,6 +32,7 @@
           <h4>优化提示词</h4>
           <span class="listActions">
             <el-button :icon="IconDownload" :disabled="!config.prompts.length" aria-label="导出全部提示词" @click="exportPrompts">导出</el-button>
+            <el-button :icon="IconUpload" aria-label="导入提示词" @click="importPrompts">导入</el-button>
             <el-button :icon="IconPlus" aria-label="添加提示词" @click="openDialog()">添加</el-button>
           </span>
         </div>
@@ -75,9 +76,10 @@
 import { computed, onMounted, ref } from "vue";
 import axios from "axios";
 import { ElAlert, ElButton, ElDialog, ElEmpty, ElInput, ElMessage, ElOption, ElSelect, ElSwitch, ElTag } from "element-plus";
-import { IconDownload, IconPlus, IconTrash } from "@tabler/icons-vue";
+import { IconDownload, IconPlus, IconTrash, IconUpload } from "@tabler/icons-vue";
 import { saveSettings, settings } from "@/stores/settings";
 import { saveTextFile } from "@/lib/saveTextFile";
+import { pickTextFile } from "@/lib/pickTextFile";
 
 interface AiModelOption {
   providerId: string;
@@ -187,6 +189,41 @@ async function exportPrompts() {
   const result = await saveTextFile("prompt-optimize-prompts.json", JSON.stringify(payload, null, 2), "提示词优化");
   if (result === "saved") ElMessage.success("已导出全部提示词");
   else if (result === "downloaded") ElMessage.success("已导出到浏览器下载目录");
+}
+
+async function importPrompts() {
+  const file = await pickTextFile();
+  if (!file) return;
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(file.text);
+  } catch {
+    ElMessage.error("导入失败：文件不是有效的 JSON");
+    return;
+  }
+  const rawItems = Array.isArray(parsed) ? parsed : (parsed as { prompts?: unknown })?.prompts;
+  if (!Array.isArray(rawItems)) {
+    ElMessage.error("导入失败：文件格式不正确");
+    return;
+  }
+  let skipped = 0;
+  const imported: PromptTemplate[] = [];
+  rawItems.forEach((entry, index) => {
+    if (!entry || typeof entry !== "object") { skipped++; return; }
+    const raw = entry as { name?: unknown; content?: unknown };
+    if (typeof raw.content !== "string" || !raw.content.trim()) { skipped++; return; }
+    imported.push({
+      id: `custom-${Date.now()}-${index}`,
+      name: typeof raw.name === "string" && raw.name.trim() ? raw.name : "未命名",
+      content: raw.content,
+    });
+  });
+  if (!imported.length) {
+    ElMessage.warning("没有可导入的提示词");
+    return;
+  }
+  await save({ prompts: [...config.value.prompts, ...imported] });
+  ElMessage.success(`已导入 ${imported.length} 条提示词${skipped ? `，跳过 ${skipped} 条无效数据` : ""}`);
 }
 
 async function save(patch: Partial<OptimizeConfig>) {
