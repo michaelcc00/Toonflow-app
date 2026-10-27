@@ -455,6 +455,12 @@ function getConfig() {
       modelId: selectedModel.value?.modelId ?? "",
       size: data.value.size,
       ratio: data.value.ratio,
+      customParams: customParams.value.map(param => ({
+        id: param.id,
+        label: param.label,
+        type: param.type,
+        value: customParamValues.value[param.id] ?? param.defaultValue,
+      })),
     },
     models: models.value,
   };
@@ -462,7 +468,7 @@ function getConfig() {
 
 nodeTools.register({
   name: "getConfig",
-  description: "读取此图片生成节点的当前模型、分辨率、比例及可选图片模型能力，不含密钥；未声明分辨率或比例时分别使用 2K、16:9",
+  description: "读取此图片生成节点的当前模型、分辨率、比例及自定义参数（含三视图等开关的当前值）及可选图片模型能力，不含密钥；未声明分辨率或比例时分别使用 2K、16:9",
   parameters: z.strictObject({}),
   async execute(_args, { signal }) {
     signal?.throwIfAborted();
@@ -497,6 +503,23 @@ nodeTools.register({
     data.value.model = JSON.stringify([choice.providerId, choice.modelId]);
     if (args.size !== undefined) data.value.size = args.size;
     if (args.ratio !== undefined) data.value.ratio = args.ratio;
+    return getConfig();
+  },
+});
+
+nodeTools.register({
+  name: "setThreeView",
+  description: "设置此图片生成节点的三视图开关：enabled=true 开启三视图，false 关闭；三视图是供应商自定义参数中标签含“三视图”的开关，只修改开关、不启动生成；当前模型未配置三视图开关时报错",
+  parameters: z.strictObject({ enabled: z.boolean() }),
+  async execute(args, { signal }) {
+    signal?.throwIfAborted();
+    if (generating.value || deleting.value) throw new Error("节点正在生成或删除，请稍后修改配置");
+    await loadModels();
+    signal?.throwIfAborted();
+    const param = customParams.value.find(item => item.type === "switch" && item.label.includes("三视图"))
+      ?? customParams.value.find(item => item.label.includes("三视图"));
+    if (!param) throw new Error("当前模型的供应商没有配置三视图参数（自定义参数中没有标签含“三视图”的开关）");
+    customParamValues.value = { ...customParamValues.value, [param.id]: args.enabled };
     return getConfig();
   },
 });
