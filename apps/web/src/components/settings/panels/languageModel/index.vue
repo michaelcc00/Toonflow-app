@@ -22,6 +22,7 @@
           </div>
           <el-space class="itemActions" wrap>
             <el-button v-if="isTfRouterProvider(item) && item.apiKey?.trim() && !item.models.length" text :icon="IconRefresh" :loading="fetchingId === item.id" :disabled="!!deletingId || !!fetchingId" @click="fetchProviderModels(item)">获取模型</el-button>
+            <el-button text :icon="IconUpload" :disabled="!!deletingId" @click="openExport(item)">导出</el-button>
             <el-button text :icon="IconEdit" :disabled="!!deletingId" @click="openCustomProvider(item)">编辑</el-button>
             <el-popconfirm title="确定删除此供应商及其模型？" confirmButtonText="删除" cancelButtonText="取消" @confirm="deleteProvider(item.id)">
               <template #reference><el-button text type="danger" :icon="IconTrash" :loading="deletingId === item.id" :disabled="!!deletingId">删除</el-button></template>
@@ -33,9 +34,21 @@
     <div class="providerActions">
       <el-button class="addButton" :icon="IconPlus" @click="openProvider">添加供应商</el-button>
       <el-button class="addButton" :icon="IconSettings" @click="openCustomProvider()">添加自定义供应商</el-button>
+      <el-button class="addButton" :icon="IconDownload" @click="importProvider">导入供应商</el-button>
     </div>
     <component :is="addProviderDialog" v-model="providerDialogVisible" />
     <component :is="addCustomProviderDialog" v-model="customProviderDialogVisible" :provider="editingProvider" />
+    <el-dialog v-model="exportVisible" title="导出供应商" width="min(440px, calc(100vw - 32px))" alignCenter appendToBody>
+      <div class="exportDialog">
+        <p class="exportTarget">{{ exportTarget?.label }}</p>
+        <el-checkbox v-model="exportIncludeApiKey">包含 API Key</el-checkbox>
+        <p v-if="exportIncludeApiKey" class="exportWarning">导出文件将包含该供应商的 API Key，请勿外传。</p>
+      </div>
+      <template #footer>
+        <el-button @click="exportVisible = false">取消</el-button>
+        <el-button type="primary" @click="confirmExport">导出</el-button>
+      </template>
+    </el-dialog>
   </div>
 </template>
 
@@ -44,7 +57,9 @@ import { computed, defineAsyncComponent, ref, shallowRef, type Component } from 
 import axios from "axios";
 import { ElMessage } from "element-plus";
 import { customProviders, saveSettings, type CustomProvider } from "@/stores/settings";
-import { IconPlus, IconSettings, IconEdit, IconTrash, IconRefresh } from "@tabler/icons-vue";
+import { IconPlus, IconSettings, IconEdit, IconTrash, IconRefresh, IconUpload, IconDownload } from "@tabler/icons-vue";
+import { saveTextFile } from "@/lib/saveTextFile";
+import { pickTextFile } from "@/lib/pickTextFile";
 import { languageProviders } from "@toonflow/providers";
 import logoUrl from "@toonflow/assets/logo.svg";
 import tfAccount from "../../tfAccount.vue";
@@ -58,6 +73,9 @@ const customProviderDialogVisible = ref(false);
 const editingProvider = ref<CustomProvider>();
 const deletingId = ref("");
 const fetchingId = ref("");
+const exportVisible = ref(false);
+const exportTarget = ref<CustomProvider>();
+const exportIncludeApiKey = ref(false);
 const sortedProviders = computed(() => [...customProviders.value].sort((a, b) => Number(isTfRouterProvider(b)) - Number(isTfRouterProvider(a))));
 
 function getProviderVersion(provider: CustomProvider) {
@@ -128,6 +146,108 @@ async function fetchProviderModels(provider: CustomProvider) {
   }
   finally { fetchingId.value = ""; }
 }
+
+function openExport(provider: CustomProvider) {
+  exportTarget.value = provider;
+  exportIncludeApiKey.value = false;
+  exportVisible.value = true;
+}
+
+function confirmExport() {
+  const provider = exportTarget.value;
+  exportVisible.value = false;
+  if (provider) void exportProvider(provider, exportIncludeApiKey.value);
+}
+
+async function exportProvider(provider: CustomProvider, includeApiKey = false) {
+  try {
+    const exported: Record<string, unknown> = { ...provider };
+    if (!includeApiKey) delete exported.apiKey;
+    const payload = {
+      kind: "toonflow-text-provider",
+      version: 1,
+      provider: exported,
+    };
+    const keyNote = includeApiKey ? "含 API Key" : "不含 API Key";
+    const fileName = `${provider.id.replace(/[^\w.-]+/g, "_")}.toonflow-text-provider.json`;
+    const result = await saveTextFile(fileName, JSON.stringify(payload, null, 2), "Toonflow 文本供应商");
+    if (result === "cancelled") return;
+    ElMessage.success(result === "saved" ? `已导出（${keyNote}）` : `已导出到浏览器下载目录（${keyNote}）`);
+  } catch { ElMessage.error("导出失败"); }
+}
+
+function parseImportedProvider(raw: unknown): CustomProvider {
+  const invalid = () => new Error("不是有效的文本供应商导出文件");
+  if (!raw || typeof raw !== "object") throw invalid();
+  const item = raw as Record<string, unknown>;
+  const text = (value: unknown) => typeof value === "string" ? value.trim() : "";
+  const id = text(item.id);
+  const label = text(item.label);
+  const apiUrl = text(item.apiUrl);
+  const protocol = text(item.protocol);
+  if (!id || !label || !apiUrl || !protocol || !Array.isArray(item.models)) throw invalid();
+  const models = item.models.map(model => {
+    if (!model || typeof model !== "object") throw invalid();
+    const entry = model as Record<string, unknown>;
+    const modelId = text(entry.id);
+    const modelLabel = text(entry.label);
+    if (!modelId || !modelLabel) throw invalid();
+    return {
+      id: modelId,
+      label: modelLabel,
+      ...(typeof entry.contextWindow === "number" && Number.isFinite(entry.contextWindow) ? { contextWindow: entry.contextWindow } : {}),
+      ...(typeof entry.maxOutputTokens === "number" && Number.isFinite(entry.maxOutputTokens) ? { maxOutputTokens: entry.maxOutputTokens } : {}),
+    };
+  });
+  return {
+    id, label, apiUrl, protocol, models,
+    apiKey: text(item.apiKey),
+    ...(text(item.icon) ? { icon: text(item.icon) } : {}),
+    ...(text(item.version) ? { version: text(item.version) } : {}),
+  };
+}
+
+async function importProvider() {
+  const file = await pickTextFile();
+  if (!file) return;
+  try {
+    const payload = JSON.parse(file.text) as { kind?: unknown; provider?: unknown };
+    if (payload?.kind !== "toonflow-text-provider") throw new Error("不是有效的文本供应商导出文件");
+    const provider = parseImportedProvider(payload.provider);
+    if (customProviders.value.some(item => item.id === provider.id)) {
+      ElMessage.error(`已存在相同 ID 的供应商「${provider.id}」，请先删除或改名后再导入`);
+      return;
+    }
+    await saveSettings(settings => {
+      const current = settings.customProviders;
+      if (!Array.isArray(current)) throw new Error("配置格式错误");
+      if (current.some(item => item?.id === provider.id)) throw new Error(`已存在相同 ID 的供应商「${provider.id}」`);
+      return { customProviders: [...current, provider] };
+    });
+    ElMessage.success(provider.apiKey ? `已导入 ${provider.label}` : `已导入 ${provider.label}（需重新填写 API Key）`);
+  } catch (error) {
+    ElMessage.error(error instanceof Error ? error.message : "导入失败");
+  }
+}
 </script>
 
 <style lang="scss" scoped src="../../providerList.scss"></style>
+
+<style lang="scss" scoped>
+.exportDialog {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+
+  .exportTarget {
+    margin: 0;
+    font-weight: 600;
+  }
+
+  .exportWarning {
+    margin: 0;
+    color: var(--el-color-warning);
+    font-size: 13px;
+  }
+}
+</style>
