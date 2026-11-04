@@ -37,8 +37,10 @@
     <span class="indexBadge" aria-hidden="true">{{ index }}</span>
     <div v-if="item.dataType === 'VIDEO' && previewUrl && !previewError" class="videoInfo" aria-hidden="true">
       <icon-player-play :size="12" />
+      <span v-if="sourceName" class="videoName">{{ sourceName }}</span>
       <span v-if="duration">{{ duration }}</span>
     </div>
+    <div v-else-if="sourceName" class="nameBar" aria-hidden="true">{{ sourceName }}</div>
   </div>
 </template>
 
@@ -46,10 +48,17 @@
 import { computed, ref, watch } from "vue";
 import { ElButton, ElImage } from "element-plus";
 import { IconX, IconFileText, IconPhoto, IconVideo, IconMusic, IconPlayerPlay } from "@tabler/icons-vue";
+import { useVueFlow } from "@vue-flow/core";
 import { useNodeFiles } from "@toonflow/nodes-scaffold/workspaceFiles";
 import type { NodeInputValue } from "@toonflow/nodes-scaffold/values";
 
 const props = defineProps<{ item: NodeInputValue; index: number }>();
+const { findNode } = useVueFlow();
+// 引用来源节点的名称，显示在缩略图上（与视频合成节点取来源名的方式一致）
+const sourceName = computed(() => {
+  const source = findNode(props.item.source);
+  return String(source?.data?.label ?? source?.label ?? "").trim();
+});
 const emit = defineEmits<{ remove: []; preview: [url: string] }>();
 const imageRef = ref<InstanceType<typeof ElImage>>();
 const previewError = ref("");
@@ -59,7 +68,8 @@ const media = computed(() => props.item.value !== undefined && (props.item.dataT
 const itemIcon = computed(() => props.item.dataType === "IMAGE" ? IconPhoto : props.item.dataType === "VIDEO" ? IconVideo : props.item.dataType === "AUDIO" ? IconMusic : IconFileText);
 const title = computed(() => {
   const content = props.item.value === undefined ? "暂无内容" : props.item.dataType === "STRING" ? props.item.value : props.item.dataType === "VIDEO" ? "视频" : props.item.dataType === "AUDIO" ? "音频" : "图片";
-  return `引用 ${props.index}：${content}${previewError.value ? `（${previewError.value}）` : ""}`;
+  const named = sourceName.value ? `${sourceName.value}（${content}）` : content;
+  return `引用 ${props.index}：${named}${previewError.value ? `（${previewError.value}）` : ""}`;
 });
 
 watch(media, () => {
@@ -175,6 +185,29 @@ function readDuration(event: Event) {
     color: var(--el-text-color-primary);
     font-size: 9px;
     line-height: 12px;
+
+    .videoName {
+      flex: 1;
+      min-width: 0;
+      overflow: hidden;
+      text-overflow: ellipsis;
+      white-space: nowrap;
+    }
+  }
+
+  .nameBar {
+    position: absolute;
+    right: 0;
+    bottom: 0;
+    left: 0;
+    padding: 2px 3px;
+    overflow: hidden;
+    background: color-mix(in srgb, var(--el-bg-color-overlay) 85%, transparent);
+    color: var(--el-text-color-primary);
+    font-size: 9px;
+    line-height: 12px;
+    text-overflow: ellipsis;
+    white-space: nowrap;
   }
 }
 </style>
