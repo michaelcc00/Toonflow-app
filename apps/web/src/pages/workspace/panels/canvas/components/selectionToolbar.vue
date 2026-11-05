@@ -27,6 +27,7 @@
       <el-button text :icon="IconMovie" :disabled="busy || disabled || !canCreateMerge" @click="createVideoMerge">视频合成</el-button>
       <el-button text :icon="IconPlayerPlay" :disabled="busy || disabled || !hasGeneratableNodes" @click="openBatchExecute">批量执行</el-button>
       <el-button text :icon="IconWand" :disabled="busy || disabled || !hasOptimizableNodes" @click="openBatchOptimize">批量优化</el-button>
+      <el-button text :icon="IconDownload" :disabled="busy || disabled || !hasPassRecords" @click="exportCacheIds">导出 cache_id</el-button>
     </div>
   </el-card>
 </template>
@@ -36,13 +37,15 @@ import { computed, nextTick, ref } from "vue";
 import { getRectOfNodes, useVueFlow, type GraphNode, type Node, type XYPosition } from "@vue-flow/core";
 import { ElButton, ElCard, ElMessage } from "element-plus";
 import {
-  IconCopyPlus, IconBoxMultiple, IconDeselect, IconPlayerPlay, IconMovie, IconWand,
+  IconCopyPlus, IconBoxMultiple, IconDeselect, IconPlayerPlay, IconMovie, IconWand, IconDownload,
   IconLayoutGrid, IconLayoutColumns, IconLayoutRows,
 } from "@tabler/icons-vue";
 import { useNodeEvent } from "@toonflow/nodes-scaffold/nodeEvent";
 import { isTypeCompatible, type NodeHandle } from "@toonflow/nodes-scaffold/runtime";
 import { getSelectionConnections } from "../selectionConnections";
 import { useBatchGenerationStore, useBatchOptimizeStore, type BatchItem } from "@/stores/batchExecution";
+import { buildXlsxBlob, type XlsxCell } from "@/lib/buildXlsx";
+import { saveBinaryFile } from "@/lib/saveBinaryFile";
 import { finishGroupDrag, getSelectionRoots, getSelectionTree } from "../selectionNodes";
 import { arrangeSelection, type ArrangeSelectionMode } from "../arrangeSelection";
 
@@ -81,6 +84,49 @@ const videoSourceNodes = computed(() => getSelectionRoots(flow.getSelectedNodes.
   .filter(node => ((node.data?.handles as NodeHandle[] | undefined) ?? [])
     .some(handle => handle.type === "source" && isTypeCompatible(handle.dataType, "VIDEO"))));
 const canCreateMerge = computed(() => mergeNodeAvailable.value && videoSourceNodes.value.length >= 2);
+type PassRecordLite = { kind?: unknown; cacheId?: unknown; duration?: unknown };
+const passRecordRows = computed(() => {
+  const seen = new Set<string>();
+  const rows: { title: string; cacheId: string; duration?: number }[] = [];
+  for (const node of flow.getSelectedNodes.value) {
+    if (node.type !== "remote-videoGenerationNode" || seen.has(node.id)) continue;
+    seen.add(node.id);
+    const title = String(node.data?.label ?? node.label ?? node.id);
+    const records = (node.data?.passRecords ?? {}) as Record<string, PassRecordLite>;
+    // 文件名带时间戳，路径升序即生成时间升序
+    for (const path of Object.keys(records).sort()) {
+      const record = records[path];
+      if (record?.kind === "first" && typeof record.cacheId === "string" && record.cacheId) {
+        rows.push({ title, cacheId: record.cacheId, duration: typeof record.duration === "number" ? record.duration : undefined });
+      }
+    }
+  }
+  return rows;
+});
+const hasPassRecords = computed(() => passRecordRows.value.length > 0);
+
+async function exportCacheIds() {
+  if (busy.value || props.disabled) return;
+  const rows = passRecordRows.value;
+  if (!rows.length) {
+    ElMessage.warning("所选视频节点没有可导出的一采记录");
+    return;
+  }
+  busy.value = true;
+  try {
+    const sheetRows: XlsxCell[][] = [
+      ["节点标题", "cache_id", "视频时长"],
+      ...rows.map(row => [row.title, row.cacheId, row.duration ?? ""] as XlsxCell[]),
+    ];
+    const blob = buildXlsxBlob("一采记录", sheetRows, [36, 24, 12]);
+    const result = await saveBinaryFile("一采cache_id.xlsx", blob, "Excel 工作簿", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet", ".xlsx");
+    if (result !== "cancelled") ElMessage.success(`已导出 ${rows.length} 条一采记录`);
+  } catch (error) {
+    ElMessage.error(error instanceof Error ? error.message : "导出 cache_id 失败");
+  } finally {
+    busy.value = false;
+  }
+}
 
 async function createVideoMerge() {
   if (busy.value || props.disabled || !canCreateMerge.value) return;
