@@ -28,6 +28,13 @@ function batchSetup(mode: BatchMode) {
       dialogVisible.value = true;
     }
 
+    function appendItems(nextItems: BatchItem[]) {
+      const existingIds = new Set(items.value.map(item => item.nodeId));
+      const added = nextItems.filter(item => !existingIds.has(item.nodeId));
+      items.value.push(...added);
+      return added.length;
+    }
+
     function setStatus(nodeId: string, status: BatchItemStatus) {
       const item = items.value.find(item => item.nodeId === nodeId);
       if (item) item.status = status;
@@ -41,7 +48,7 @@ function batchSetup(mode: BatchMode) {
 
     return {
       items, mode, concurrency, perNodeBatch, active, dialogVisible, running, queuedCount, doneCount, total,
-      openDialog, setStatus, reset,
+      openDialog, appendItems, setStatus, reset,
     };
   };
 }
