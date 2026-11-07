@@ -161,16 +161,18 @@ async function createVideoMerge() {
 }
 
 function openBatchExecute() {
-  if (batchGeneration.active) {
-    batchGeneration.dialogVisible = true;
-    return;
-  }
   const items: BatchItem[] = generatableNodes.value.map(node => ({
     nodeId: node.id,
     label: String(node.data?.label ?? node.label ?? node.id),
     nodeType: node.type === "remote-imageGenerationNode" ? "image" : "video",
     status: "queued",
   }));
+  if (batchGeneration.active) {
+    const added = batchGeneration.appendItems(items);
+    batchGeneration.dialogVisible = true;
+    if (added) ElMessage.success(`已追加 ${added} 个节点到批量队列`);
+    return;
+  }
   batchGeneration.openDialog(items);
 }
 const optimizableNodes = computed(() => {
@@ -184,16 +186,18 @@ const optimizableNodes = computed(() => {
 const hasOptimizableNodes = computed(() => optimizableNodes.value.length > 0);
 
 function openBatchOptimize() {
-  if (batchOptimize.active) {
-    batchOptimize.dialogVisible = true;
-    return;
-  }
   const items: BatchItem[] = optimizableNodes.value.map(node => ({
     nodeId: node.id,
     label: String(node.data?.label ?? node.label ?? node.id),
     nodeType: "video",
     status: "queued",
   }));
+  if (batchOptimize.active) {
+    const added = batchOptimize.appendItems(items);
+    batchOptimize.dialogVisible = true;
+    if (added) ElMessage.success(`已追加 ${added} 个节点到批量队列`);
+    return;
+  }
   batchOptimize.openDialog(items);
 }
 const visible = computed(() => !props.disabled && !flow.userSelectionActive.value && flow.getSelectedNodes.value.length > 0
