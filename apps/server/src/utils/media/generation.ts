@@ -32,6 +32,36 @@ function record(value: unknown): Record<string, unknown> {
   return value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : {};
 }
 
+// ACT: 诊断用请求日志：供应商插件没有 console，只能由宿主把它的每个请求打到服务端终端
+// （方法、地址、状态、耗时），用来分清「任务没提交出去」和「提交了后台没显示」。
+// 结果轮询是同地址 GET 反复调用，只打前 2 次和每 20 次；慢请求（>3 秒）与失败请求永远打。
+// 地址里的密钥类查询参数打码，prompt_id 等普通参数保留，方便到面板核对。
+function generationFetch(providerId: string): typeof fetch {
+  let count = 0;
+  const seen = new Map<string, number>();
+  const wrapped = async (input: Parameters<typeof fetch>[0], init?: RequestInit) => {
+    const request = input instanceof Request ? new Request(input, init) : new Request(String(input), init);
+    const id = ++count;
+    const key = request.method + " " + request.url;
+    const times = (seen.get(key) ?? 0) + 1;
+    seen.set(key, times);
+    const throttled = request.method === "GET" && times > 2 && times % 20 !== 0;
+    const url = request.url.replace(/([?&](?:api.?key|token|secret|password|signature)=)[^&\s]*/gi, "$1••••••");
+    const startedAt = performance.now();
+    try {
+      const response = await fetch(request);
+      const duration = Math.round(performance.now() - startedAt);
+      if (!throttled || duration > 3000 || !response.ok) console.log(`[媒体生成] ${providerId} #${id} ${request.method} ${url} → ${response.status}，${duration}ms`);
+      return response;
+    } catch (error) {
+      const duration = Math.round(performance.now() - startedAt);
+      console.log(`[媒体生成] ${providerId} #${id} ${request.method} ${url} → 请求失败：${error instanceof Error ? error.message : String(error)}，${duration}ms`);
+      throw error;
+    }
+  };
+  return Object.assign(wrapped, { preconnect: fetch.preconnect }) as typeof fetch;
+}
+
 function imageOptions(value: unknown, pattern: RegExp) {
   return Array.isArray(value) ? [...new Set(value.filter((item): item is string => typeof item === "string" && item.length <= 64 && item === item.trim() && pattern.test(item)))] : undefined;
 }
@@ -154,7 +184,7 @@ export async function generateMedia(
   const model = providerInfo.models.find(model => model.id === request.modelId && model.type === mediaType);
   if (!model) invalid("所选媒体模型不存在或类型不匹配，请重新选择");
   const configurations = record(conf.get("settings", {}).mediaProviderConfigs);
-  const provider = await loadMediaProviderSource(providerInfo.source, record(configurations[providerInfo.id]), signal, undefined, directory);
+  const provider = await loadMediaProviderSource(providerInfo.source, record(configurations[providerInfo.id]), signal, generationFetch(providerInfo.id), directory);
   const generate = mediaType === "image" ? provider.generateImage : mediaType === "video" ? provider.generateVideo : provider.generateAudio;
   if (typeof generate !== "function") invalid(t`此供应商不支持${translateMessage({ image: "图片", video: "视频", audio: "音频" }[mediaType])}生成`);
   const rules = Array.isArray(provider.rules) ? provider.rules : [];
@@ -162,6 +192,7 @@ export async function generateMedia(
   const references = async (items: MediaReference[] | undefined, type: string) => items ? Promise.all(items.map(item => readReference(directory, item, type, signal))) : undefined;
   const images = await references(request.images, "image");
   signal?.throwIfAborted();
+  console.log(`[媒体生成] ${providerInfo.id} 开始生成${{ image: "图片", video: "视频", audio: "音频" }[mediaType]}（模型 ${request.modelId}）`);
   const assets = mediaType === "audio"
     ? await provider.generateAudio!({
       model: request.modelId, text: request.prompt, images, audios: await references(request.audios, "audio"),
@@ -180,6 +211,7 @@ export async function generateMedia(
   // 供应商可返回数组或 { assets, optimizedPrompt, providerData }；optimizedPrompt 透出本次实际使用的提示词（如 LLM 优化版），
   // providerData 透出供应商自定义的结构化数据（如 zealman H3 的一采 cache_id），由节点自行保存使用
   const assetList = Array.isArray(assets) ? assets : assets.assets;
+  console.log(`[媒体生成] ${providerInfo.id} 供应商已返回结果，开始保存文件`);
   const optimizedPrompt = Array.isArray(assets) ? undefined : assets.optimizedPrompt;
   const providerData = Array.isArray(assets) ? undefined : assets.providerData;
   if (!Array.isArray(assetList) || !assetList.length) invalid("供应商未返回生成结果");

@@ -68,8 +68,7 @@
         <div class="promptInputHeader">
           <el-segmented
             v-model="showOptimized"
-            :options="[{ label: '原始', value: false }, { label: '优化后', value: true }]"
-            :disabled="!hasOptimized"
+            :options="promptVersionOptions"
             size="small"
             aria-label="切换原始或优化后提示词" />
         </div>
@@ -237,6 +236,12 @@ const optimizeError = ref("");
 const generateDone = ref(false);
 const showOptimized = ref(!!data.value.optimizedPrompt.trim());
 const hasOptimized = computed(() => !!data.value.optimizedPrompt.trim());
+// ACT: 不能整组禁用：停在优化后并清空内容时 hasOptimized 变 false，整组禁用会把用户锁死在空的优化后视图、切不回原始。
+// 原始恒可点；优化后仅在“没有优化内容且当前不在优化后视图”时禁用。
+const promptVersionOptions = computed(() => [
+  { label: "原始", value: false },
+  { label: "优化后", value: true, disabled: !hasOptimized.value && !showOptimized.value },
+]);
 // 输入框显示原始或优化后：切到哪边，生成就用哪边
 const displayPrompt = computed({
   get: () => showOptimized.value ? data.value.optimizedPrompt : data.value.prompt,
