@@ -1,4 +1,6 @@
 import type { Request } from "express";
+import { writeFile } from "@toonflow/file";
+import { join } from "node:path";
 import { getConfiguredModel, readAiReferences, streamAi } from "@/utils/ai";
 import { resolveWorkspace } from "@/utils/workspace";
 import {
@@ -83,6 +85,16 @@ export async function optimizePrompt(args: PromptOptimizeArgs): Promise<string> 
       userText = `Raw user prompt:\n${prompt}${refs}`;
     }
     console.log("[提示词优化] 系统提示词:\n" + system);
+
+    // ACT: 终端回滚会冲掉长日志、重定向又有代码页乱码问题，另存一份完整文本到数据目录
+    // （每次覆盖，UTF-8 由程序写出），随时打开核对；落盘失败不影响优化本身。
+    try {
+      const dataDirectory = process.env.TOONFLOW_DATA_DIR;
+      if (dataDirectory) {
+        const content = `时间：${new Date().toLocaleString("zh-CN")}\n\n[用户提示词]\n${prompt}\n\n[系统提示词]\n${system}\n\n[用户侧文本]\n${userText}\n`;
+        await writeFile(join(dataDirectory, "prompt-optimize-last.txt"), content, "utf8");
+      }
+    } catch { /* 日志落盘失败不拦截优化 */ }
 
     const stream = streamAi(configured, {
       systemPrompt: system,
