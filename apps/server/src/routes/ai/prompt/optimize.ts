@@ -16,7 +16,7 @@ export default Router().post("/", validateFields({
   imagePaths: z.array(imageSchema).max(9).optional(),
   language: z.enum(["zh", "en"]).optional(),
   readMedia: z.boolean().optional(),
-  systemTemplate: z.string().min(1).max(20000).optional(),
+  systemTemplate: z.string().min(1).max(200000).optional(),
   templateId: z.string().min(1).max(128).optional(),
   task: z.enum(["T2VA", "I2VA", "L2VA", "FL2VA", "REF2VA", "HYBRID"]).optional(),
   duration: z.number().positive().max(3600).optional(),
