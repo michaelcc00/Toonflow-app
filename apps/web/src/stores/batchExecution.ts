@@ -4,11 +4,19 @@ import { defineStore } from "pinia";
 export type BatchItemStatus = "queued" | "running" | "done" | "failed" | "cancelled";
 export type BatchMode = "generate" | "optimize";
 export type BatchItem = {
+  /** 队列条目唯一 id：同一节点可重复入队，每条独立计数、独立执行 */
+  id: string;
   nodeId: string;
   label: string;
   nodeType: "image" | "video";
   status: BatchItemStatus;
 };
+export type BatchItemInput = Omit<BatchItem, "id"> & { id?: string };
+
+let batchItemSeq = 0;
+function stampIds(nextItems: BatchItemInput[]): BatchItem[] {
+  return nextItems.map(item => ({ ...item, id: item.id ?? `batch-${++batchItemSeq}` }));
+}
 
 // ACT: 生成与优化各用一个独立 store，两种批量可同时进行，互不阻塞。
 function batchSetup(mode: BatchMode) {
@@ -23,21 +31,16 @@ function batchSetup(mode: BatchMode) {
     const doneCount = computed(() => items.value.filter(item => item.status === "done" || item.status === "failed").length);
     const total = computed(() => items.value.length);
 
-    function openDialog(nextItems: BatchItem[]) {
-      items.value = nextItems;
+    function openDialog(nextItems: BatchItemInput[]) {
+      items.value = stampIds(nextItems);
       dialogVisible.value = true;
     }
 
-    function appendItems(nextItems: BatchItem[]) {
-      const existingIds = new Set(items.value.map(item => item.nodeId));
-      const added = nextItems.filter(item => !existingIds.has(item.nodeId));
+    // 不按节点去重：正在执行或已完成的节点也能再次追加到队尾，轮到时再执行一次。
+    function appendItems(nextItems: BatchItemInput[]) {
+      const added = stampIds(nextItems);
       items.value.push(...added);
       return added.length;
-    }
-
-    function setStatus(nodeId: string, status: BatchItemStatus) {
-      const item = items.value.find(item => item.nodeId === nodeId);
-      if (item) item.status = status;
     }
 
     function reset() {
@@ -48,7 +51,7 @@ function batchSetup(mode: BatchMode) {
 
     return {
       items, mode, concurrency, perNodeBatch, active, dialogVisible, running, queuedCount, doneCount, total,
-      openDialog, appendItems, setStatus, reset,
+      openDialog, appendItems, reset,
     };
   };
 }
