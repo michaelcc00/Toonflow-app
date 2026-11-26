@@ -23,6 +23,8 @@ export interface PromptOptimizeArgs {
   systemTemplate?: string;
   /** 为 "goohai-builtin" 时使用 Goohai H3 的 buildSystemPrompt，不走模板字符串 */
   templateId?: string;
+  /** 自定义模板的输出语言：为 "zh" 时优化结果返回后用同一模型翻译成中文再返回；内置模板不适用 */
+  outputLang?: "zh" | "en";
   /** H3 任务模式，默认 REF2VA */
   task?: H3Task;
   /** 目标视频时长（秒），默认 5 */
@@ -49,7 +51,7 @@ function systemPrompt(template: string, imageCount: number, language: "zh" | "en
 
 /** 用用户自配的文本模型做提示词优化，返回优化后的完整文本。 */
 export async function optimizePrompt(args: PromptOptimizeArgs): Promise<string> {
-  const { req, providerId, modelId, prompt, imagePaths, language, readMedia, systemTemplate, templateId, task = "REF2VA", duration = 5, directory, signal } = args;
+  const { req, providerId, modelId, prompt, imagePaths, language, readMedia, systemTemplate, templateId, outputLang, task = "REF2VA", duration = 5, directory, signal } = args;
   if (!prompt.trim()) throw Object.assign(new Error("提示词不能为空"), { status: 400 });
   const configured = getConfiguredModel(providerId, modelId);
   const controller = new AbortController();
@@ -110,6 +112,15 @@ export async function optimizePrompt(args: PromptOptimizeArgs): Promise<string> 
     }
     const raw = text.trim();
     if (!raw) throw new Error("优化模型未返回文本，请更换模型或重试");
+
+    // 自定义模板选了输出中文：优化结果返回后用同一模型翻译成中文再返回，节点「优化后」显示的就是中文
+    if (templateId !== GOOHAY_BUILTIN_TEMPLATE_ID && outputLang === "zh") {
+      try {
+        return await translatePromptText({ providerId, modelId, text: raw, signal });
+      } catch (error) {
+        throw new Error(`优化已完成，但翻译成中文失败：${error instanceof Error ? error.message : "请重试"}`);
+      }
+    }
 
     // 内置与自定义一致：模型输出原样返回，不做后处理
     return raw;
