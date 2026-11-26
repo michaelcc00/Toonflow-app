@@ -17,7 +17,7 @@
       <div class="batchList">
         <div
           v-for="(item, index) in store.items"
-          :key="item.nodeId"
+          :key="item.id"
           class="batchRow"
           :class="{ dragging: dragIndex === index, running: item.status === 'running' }"
           :draggable="canEditItem(item)"
@@ -68,7 +68,7 @@ import { ElButton, ElDialog, ElEmpty, ElInputNumber, ElOption, ElProgress, ElSel
 import { IconGripVertical, IconTrash } from "@tabler/icons-vue";
 import { batchDialogEvent, getBatchQueueMap } from "@toonflow/nodes-scaffold/runtime";
 import { useNodeToolsContext } from "@toonflow/nodes-scaffold/nodeTools";
-import { useBatchGenerationStore, useBatchOptimizeStore, type BatchItem, type BatchMode } from "@/stores/batchExecution";
+import { useBatchGenerationStore, useBatchOptimizeStore, type BatchItem, type BatchItemInput, type BatchMode } from "@/stores/batchExecution";
 
 const props = defineProps<{ mode: BatchMode }>();
 const store = (props.mode === "optimize" ? useBatchOptimizeStore : useBatchGenerationStore)();
@@ -85,11 +85,11 @@ let currentBatchCount = 1;
 let currentConcurrency = 1;
 const statusTexts = { queued: "排队中", running: "执行中", done: "已完成", failed: "失败", cancelled: "已取消" } as const;
 const hasPending = computed(() => store.items.some(item => item.status === "queued" || item.status === "running"));
-const candidateItems = computed<BatchItem[]>(() => {
-  const existingIds = new Set(store.items.map(item => item.nodeId));
+const candidateItems = computed<BatchItemInput[]>(() => {
+  // 队列里已有的节点也能再选：重复添加会作为新条目排到队尾再执行一次。
   const seen = new Set<string>();
   return flow.getNodes.value.flatMap(node => {
-    if (existingIds.has(node.id) || seen.has(node.id)) return [];
+    if (seen.has(node.id)) return [];
     const nodeType = node.type === "remote-imageGenerationNode" && store.mode === "generate" ? "image"
       : node.type === "remote-videoGenerationNode" ? "video" : undefined;
     if (!nodeType) return [];
@@ -150,7 +150,7 @@ onScopeDispose(() => {
 });
 
 watch(
-  () => store.items.map(item => `${item.nodeId}:${item.status}`).join("|"),
+  () => store.items.map(item => `${item.id}:${item.status}`).join("|"),
   () => {
     refreshQueueOverlays();
     ensureWorkers();
@@ -163,8 +163,12 @@ function refreshQueueOverlays() {
   // ACT: 遮罩只在执行中显示；设置阶段拖动排序也不画遮罩。
   if (!store.active) return;
   const total = store.items.length;
+  // 同一节点重复入队时，遮罩只显示它最靠前的那条排队位置。
+  const shown = new Set<string>();
   store.items.forEach((item, index) => {
-    if (item.status === "queued") queueMap.set(item.nodeId, { position: index + 1, total, mode: store.mode });
+    if (item.status !== "queued" || shown.has(item.nodeId)) return;
+    shown.add(item.nodeId);
+    queueMap.set(item.nodeId, { position: index + 1, total, mode: store.mode });
   });
 }
 
@@ -192,11 +196,17 @@ async function waitForOptimizeDone(nodeId: string, runId: number) {
   }
 }
 
+// 同一节点在批量里同时只能跑一条：重复入队的条目要等前一条跑完才轮到，避免对同一节点并发触发两次生成。
+function pickNextItem(): BatchItem | undefined {
+  const runningNodeIds = new Set(store.items.filter(item => item.status === "running").map(item => item.nodeId));
+  return store.items.find(item => item.status === "queued" && !runningNodeIds.has(item.nodeId));
+}
+
 async function runWorker(runId: number) {
   while (!cancelled && runId === executionId && store.active) {
-    const item: BatchItem | undefined = store.items.find(item => item.status === "queued");
+    const item = pickNextItem();
     if (!item) return;
-    store.setStatus(item.nodeId, "running");
+    item.status = "running";
     refreshQueueOverlays();
     try {
       if (store.mode === "optimize") {
@@ -217,10 +227,10 @@ async function runWorker(runId: number) {
         await waitForNodeDone(item.nodeId, runId);
       }
       if (cancelled || runId !== executionId) return;
-      store.setStatus(item.nodeId, "done");
+      item.status = "done";
     } catch {
       if (cancelled || runId !== executionId) return;
-      store.setStatus(item.nodeId, "failed");
+      item.status = "failed";
     }
     refreshQueueOverlays();
   }
@@ -230,7 +240,9 @@ function ensureWorkers() {
   if (!managesExecution || cancelled || !store.active) return;
   const runId = executionId;
   const workerCount = Math.max(1, Math.floor(currentConcurrency) || 1);
-  while (activeWorkers < workerCount && store.items.some(item => item.status === "queued")) {
+  // 只在有可取条目时补位：剩下的排队条目若都是正在跑的节点的重复条目，取不了，
+  // 等正在跑的那条完成、由它的 worker 顺手接上，不能在这里空转补位。
+  while (activeWorkers < workerCount && pickNextItem()) {
     activeWorkers++;
     void runWorker(runId).finally(() => {
       if (runId !== executionId) return;
