@@ -14,10 +14,12 @@
 // 随机种子：配置里的种子字段名（默认 noise_seed）非空时，一采每次提交生成一个随机种子（0～10^15）
 //   填入该 input_values 字段，避免同参数批量生成因种子相同（randomize 只对 ComfyUI 网页手动运行
 //   有效，API 提交时工作流里保存的种子原样发送）而出完全相同的视频；二采不传种子（靠 cache_id 关联）。
-// 上传文件名按内容哈希+字节数生成（同内容同名，面板端同名即同一文件、天然复用）；配置
-//   「参考素材上传」选“每次重新上传”时文件名带随机后缀，强制全新上传、不再引用面板上已存的
-//   同名旧文件，相当于清空复用。插件没有跨请求保存的上传记录（每次调用全新加载，下面的
-//   上传缓存 Map 只在单次调用内去重），面板也没有删除 input 文件的接口，旧文件只能弃用不能删。
+// 上传文件名用素材在 Toonflow 里的原始文件名（即生成该素材的节点保存的文件名，宿主随素材
+//   带过来的是工作区相对路径，取最后一段）；拿不到原始文件名时回退内容哈希+字节数命名
+//   （同内容同名、不同内容不撞名）。生成前先拉面板 input 目录清单（GET /api/input-assets）：
+//   同名同大小、且文件修改时间（≈上传时间）距现在没超过配置「过期时长（小时）」的文件直接
+//   复用、跳过上传；过期、大小对不上或清单拿不到时重新上传（overwrite 覆盖同名）。插件没有
+//   跨请求保存的上传记录（每次调用全新加载），复用判断全靠面板清单里的文件时间。
 // 首帧/尾帧折进参考图前列（首帧=图1、尾帧=图2），因为该工作流没有单独的首尾帧参数。
 // prompt_id 只存在于面板 ComfyUI 内存中，面板重启即失效；插件在任务完成时立即取走结果 URL。
 // 取消生成只停止本地轮询，面板端没有单机中断接口，远端任务会继续跑完。
@@ -52,8 +54,15 @@ type ZmProviderContext = {
   tool: { fetch: typeof fetch; hash: (data: string | Uint8Array) => number };
 };
 
-const ZM_UPLOAD_TTL_MS = 20 * 60 * 60 * 1000; // 单次调用内重复引用同一素材时复用上传结果（Map 不跨请求）
-const zmUploadCache = new Map<string, { name: string; uploadedAt: number }>();
+type ZmInputAsset = { path: string; size?: number; mtimeMs?: number };
+
+type ZmUploadState = {
+  /** 面板 input 目录清单；undefined = 没拿到清单，一律重新上传。 */
+  assets: ZmInputAsset[] | undefined;
+  expireMs: number;
+  /** 本次生成内已处理过的素材（键=文件名+字节数），同名同内容只传一次。 */
+  done: Map<string, string>;
+};
 
 function zmStr(v: unknown, fallback = ""): string {
   return typeof v === "string" && v.trim() ? v.trim() : fallback;
@@ -158,11 +167,68 @@ async function zmToBytes(ctx: ZmProviderContext, input: ZmMediaInput, signal: Ab
   return { bytes: buf, mimeType };
 }
 
+/** 配置里的过期时长（小时）→ 毫秒；缺失/非法时默认 10 小时，0 表示每次都重新上传。 */
+function zmExpireMs(ctx: ZmProviderContext): number {
+  const raw = Number.parseFloat(zmStr(ctx.config.uploadExpireHours, "10"));
+  const hours = Number.isFinite(raw) && raw >= 0 ? raw : 10;
+  return hours * 60 * 60 * 1000;
+}
+
+/**
+ * 拉面板 input 目录清单（GET /api/input-assets），用于判断同名文件是否已上传、是否过期。
+ * 清单条目的字段名/时间单位按面板文档与同模块接口的常见形状宽容解析（relativePath/path/name、
+ * size、mtime 秒或毫秒或时间字符串）。返回 undefined 表示清单不可用（接口失败或结构对不上）
+ * ——调用方一律按“重新上传”处理，宁可多传一次，也不能引用不存在或已过期的文件让工作流拿错素材。
+ */
+async function zmListInputAssets(ctx: ZmProviderContext, baseUrl: string, signal: AbortSignal): Promise<ZmInputAsset[] | undefined> {
+  try {
+    const res = await ctx.tool.fetch(baseUrl + "/api/input-assets", { signal });
+    if (!res.ok) return undefined;
+    const data: any = await res.json().catch(() => undefined);
+    const rawList: unknown = Array.isArray(data) ? data : data?.assets ?? data?.files ?? data?.data;
+    if (!Array.isArray(rawList)) return undefined;
+    return rawList.flatMap((item): ZmInputAsset[] => {
+      if (!item || typeof item !== "object") return [];
+      const record = item as Record<string, unknown>;
+      const path = (zmStr(record.relativePath) || zmStr(record.path) || zmStr(record.name)).replace(/\\/g, "/");
+      if (!path) return [];
+      const size = typeof record.size === "number" && Number.isFinite(record.size) ? record.size : undefined;
+      const rawTime = record.mtime ?? record.modifiedAt ?? record.updatedAt ?? record.time;
+      let mtimeMs: number | undefined;
+      if (typeof rawTime === "number" && Number.isFinite(rawTime)) mtimeMs = rawTime > 1e12 ? rawTime : rawTime * 1000;
+      else if (typeof rawTime === "string") {
+        const parsed = Date.parse(rawTime);
+        if (Number.isFinite(parsed)) mtimeMs = parsed;
+      }
+      return [{ path, size, mtimeMs }];
+    });
+  } catch {
+    return undefined;
+  }
+}
+
+/**
+ * 定上传文件名：优先用素材在 Toonflow 里的原始文件名（宿主带过来的是工作区相对路径，取最后
+ * 一段），也就是生成该素材的节点保存的文件名，面板上同名即同一文件；拿不到时回退内容哈希
+ * 命名（旧版曾从“地址|哈希”截前 12 个字符当文件名，截到的全是地址前缀，不同图片同名互相
+ * 覆盖串图，所以回退名也必须带全哈希与字节数）。
+ */
+function zmUploadFileName(input: ZmMediaInput, mimeExt: string, kindPrefix: "image/" | "video/" | "audio/", hash: string, byteLength: number): string {
+  const raw = zmStr(input.name);
+  const base = raw ? raw.split(/[\\/]/).pop()?.replace(/["\r\n]/g, "").trim() : "";
+  if (!base || base === "." || base === "..") return "zm-" + hash + "-" + byteLength + "." + mimeExt;
+  const dot = base.lastIndexOf(".");
+  const nameExt = dot > 0 ? base.slice(dot + 1).toLowerCase() : "";
+  if (!nameExt) return base + "." + mimeExt;
+  // 音频的工作流节点按扩展名校验：原始扩展名不在允许列表里时换成按内容类型推出的扩展名
+  if (kindPrefix === "audio/" && !ZM_ALLOWED_AUDIO_EXTS.includes(nameExt)) return base.slice(0, dot + 1) + mimeExt;
+  return base;
+}
+
 /**
  * 上传一个参考素材到面板 ComfyUI input 目录，返回填给 input_values 的 name。
- * 文件名按内容哈希+字节数生成：同内容同名，面板端同名即同一文件，天然复用（上传时
- * overwrite=true 覆盖同名，内容一致所以无副作用）；配置为“每次重新上传”时文件名带
- * 随机后缀，强制全新上传、不引用面板上已存的同名旧文件。
+ * 复用判定：面板清单里已有同名同大小的文件，且它的修改时间（≈上传时间）距现在没超过
+ * 配置的过期时长 → 直接复用该文件名、跳过上传；否则上传（overwrite=true 覆盖同名）。
  */
 async function zmUploadMedia(
   ctx: ZmProviderContext,
@@ -171,6 +237,7 @@ async function zmUploadMedia(
   label: string,
   kindPrefix: "image/" | "video/" | "audio/",
   signal: AbortSignal,
+  state: ZmUploadState,
 ): Promise<string> {
   const data = await zmToBytes(ctx, input, signal);
   if (!data.mimeType.toLowerCase().startsWith(kindPrefix)) throw new Error(label + "的格式不对：" + data.mimeType);
@@ -183,18 +250,18 @@ async function zmUploadMedia(
   } else if (!ext) {
     ext = kindPrefix === "image/" ? "png" : "mp4";
   }
-  // 文件名必须由内容决定：旧版从“地址|哈希”里截前 12 个字符当文件名，截到的全是地址
-  // 前缀（实测不同图片在同一台机器上都叫 zm-httpsuu12325.png），多张参考图互相覆盖串图。
   const hash = String(ctx.tool.hash(data.bytes));
-  // 缓存键带上服务地址：同一文件在不同机器上各有一份，不能跨地址复用上传结果
-  const key = baseUrl + "|" + hash + "|" + data.bytes.length;
-  const forceFresh = zmStr(ctx.config.uploadReuse, "auto") === "always";
-  if (!forceFresh) {
-    const cached = zmUploadCache.get(key);
-    if (cached && Date.now() - cached.uploadedAt < ZM_UPLOAD_TTL_MS) return cached.name;
+  const fileName = zmUploadFileName(input, ext, kindPrefix, hash, data.bytes.length);
+  const doneKey = fileName + "|" + data.bytes.length;
+  const doneName = state.done.get(doneKey);
+  if (doneName) return doneName;
+  if (state.expireMs > 0 && state.assets) {
+    const existing = state.assets.find((item) => item.path === fileName);
+    if (existing && existing.size === data.bytes.length && existing.mtimeMs !== undefined && Date.now() - existing.mtimeMs < state.expireMs) {
+      state.done.set(doneKey, fileName);
+      return fileName;
+    }
   }
-  const fileName =
-    "zm-" + hash + "-" + data.bytes.length + (forceFresh ? "-" + Date.now().toString(36) + Math.floor(Math.random() * 1e6).toString(36) : "") + "." + ext;
   const part = zmBuildMultipart(fileName, data.mimeType, data.bytes);
   const res = await ctx.tool.fetch(baseUrl + "/api/comfy/upload/file", {
     method: "POST",
@@ -210,7 +277,7 @@ async function zmUploadMedia(
   const name = zmStr(result?.name);
   if (!name) throw new Error(label + "上传失败：" + zmSafeText(result));
   const value = zmStr(result?.subfolder) ? zmStr(result.subfolder).replace(/\/+$/, "") + "/" + name : name;
-  if (!forceFresh) zmUploadCache.set(key, { name: value, uploadedAt: Date.now() });
+  state.done.set(doneKey, value);
   return value;
 }
 
@@ -235,8 +302,8 @@ function zmResolveRefTags(prompt: string, imageCount: number, videoCount: number
 export default {
   id: "zealmanMinimaxH3",
   label: "zealman MiniMax H3 视频生成",
-  version: "1.5.4",
-  readme: "## zealman MiniMax H3 视频生成\n\n调用自托管 ComfyUI 面板（zealman 镜像 API）的视频生成适配器，与 RunningHub 供应商完全独立，不需要 API Key。\n\n**配置**\n- 服务地址：zealman 面板地址，如 https://xxxx.bjb1.seetacloud.com:8443\n- 工作流名称：面板「API 生成」页里已保存的工作流名称，如 MiniMaxH3_一二采\n- 生成前清显存：默认开启。连续跑 H3 这类重模型时，先调面板的清显存接口，避免第二次生成显存不足（OOM）；最多只等 5 秒，超时直接提交；不需要时可关闭\n- 随机种子字段：默认 noise_seed，一采每次提交自动生成随机种子，避免同参数批量生成出完全相同的视频；清空则不传种子（工作流使用保存的固定种子）；二采不传种子\n- 音频模式字段名：留空则不传递音频模式（按工作流默认值）；填了才传，字段名以面板工作流里 GH 节点的实际参数名为准，填错可能导致任务失败。音频模式默认 reference_only（参考音频仅作音色参考、生成新台词），另有 native（自动生成音频）、lock_source（原样保留源音频）、remix_source（部分混音/改编）可选\n- 参考素材上传：默认自动复用——素材按内容命名上传，内容相同始终同名，面板上已有同名文件就沿用；选「每次重新上传」则每次生成都换新文件名重新上传，不再引用面板上已存的旧文件，相当于把复用清掉（插件本身不跨请求保存任何上传记录；面板没有删除 input 文件的接口，旧文件只会弃用、不会被删）\n\n**一采 / 二采**\n- cache_id 是一采的标记：工作流里有 cache_id、cache_id_2、cache_id_3 三个字段，三个都传同一个值；每次一采自动生成唯一 cache_id，随结果回传给宿主，宿主把这次的参数和 cache_id 一起保存到视频节点\n- 视频节点上点「二采」时，只需填放大倍数：宿主用一采保存的参数重跑，插件复用同一 cache_id，并传 value_2=true（是否二采）和 value=放大倍数，放大由工作流内部完成，megapixels 与一采保持一致\n- 只有一采的视频能二采；二采结果会在历史记录里标明，并注明来自哪条一采\n\n**参数**\n- 时长：5–16 秒（逐秒可选），也可输入任意正数秒\n- 分辨率：像素档 0.2–1.0（每 0.1 一档，对应工作流的 megapixels），默认 0.4\n- 比例：节点上选的比例直接传给工作流的 aspect\n- 提示词：引用标签请直接写 <Picture N> / <Video N> / <Audio N>（N 为该类型下的序号）；{{ref N}} 仅在只传图片时自动转 <Picture N>\n- 参考图最多 9 张（含首/尾帧）→ param_ref_image_1..9；参考视频最多 3 个 → param_ref_video_1..3；参考音频最多 3 个 → param_ref_audio_1..3\n- 首帧/尾帧模式下，首帧作为图1、尾帧作为图2 传给工作流\n\n**说明**\n- 参考素材先上传到面板 input 目录再提交任务；文件名按内容哈希和大小生成，不同内容绝不撞名（旧版文件名截断写错，同一台机器上所有素材会同名互相覆盖，已修复）\n- 每次提交会自动清空 gh_state_json（节点会用工作流里存的旧提示词/旧参考图覆盖传入值，不清空会导致提示词和参考图不生效）\n- 生成为异步轮询（每 3 秒一次，最长约 60 分钟）；prompt_id 只存在于面板内存中，面板重启后无法再查询，插件会在完成时立即取走结果\n- 在 Toonflow 里取消生成只停止本地等待，面板端任务会继续跑完（面板没有单机中断接口）",
+  version: "1.6.0",
+  readme: "## zealman MiniMax H3 视频生成\n\n调用自托管 ComfyUI 面板（zealman 镜像 API）的视频生成适配器，与 RunningHub 供应商完全独立，不需要 API Key。\n\n**配置**\n- 服务地址：zealman 面板地址，如 https://xxxx.bjb1.seetacloud.com:8443\n- 工作流名称：面板「API 生成」页里已保存的工作流名称，如 MiniMaxH3_一二采\n- 生成前清显存：默认开启。连续跑 H3 这类重模型时，先调面板的清显存接口，避免第二次生成显存不足（OOM）；最多只等 5 秒，超时直接提交；不需要时可关闭\n- 随机种子字段：默认 noise_seed，一采每次提交自动生成随机种子，避免同参数批量生成出完全相同的视频；清空则不传种子（工作流使用保存的固定种子）；二采不传种子\n- 音频模式字段名：留空则不传递音频模式（按工作流默认值）；填了才传，字段名以面板工作流里 GH 节点的实际参数名为准，填错可能导致任务失败。音频模式默认 reference_only（参考音频仅作音色参考、生成新台词），另有 native（自动生成音频）、lock_source（原样保留源音频）、remix_source（部分混音/改编）可选\n- 参考素材过期时长（小时，默认 10）：上传文件名用素材在 Toonflow 里的原始文件名（即生成该素材的节点保存的文件名）。每次生成前先查面板 input 目录：已有同名同大小的文件、且它的时间（≈上传时间）距现在没超过这个时长，就直接复用、不再上传；超过了、或大小对不上，就重新上传覆盖。填 0 表示每次都重新上传。插件本身不保存任何上传记录，判断全靠面板上文件的时间；本机与面板机器时钟差太多会影响判断\n\n**一采 / 二采**\n- cache_id 是一采的标记：工作流里有 cache_id、cache_id_2、cache_id_3 三个字段，三个都传同一个值；每次一采自动生成唯一 cache_id，随结果回传给宿主，宿主把这次的参数和 cache_id 一起保存到视频节点\n- 视频节点上点「二采」时，只需填放大倍数：宿主用一采保存的参数重跑，插件复用同一 cache_id，并传 value_2=true（是否二采）和 value=放大倍数，放大由工作流内部完成，megapixels 与一采保持一致\n- 只有一采的视频能二采；二采结果会在历史记录里标明，并注明来自哪条一采\n\n**参数**\n- 时长：5–16 秒（逐秒可选），也可输入任意正数秒\n- 分辨率：像素档 0.2–1.0（每 0.1 一档，对应工作流的 megapixels），默认 0.4\n- 比例：节点上选的比例直接传给工作流的 aspect\n- 提示词：引用标签请直接写 <Picture N> / <Video N> / <Audio N>（N 为该类型下的序号）；{{ref N}} 仅在只传图片时自动转 <Picture N>\n- 参考图最多 9 张（含首/尾帧）→ param_ref_image_1..9；参考视频最多 3 个 → param_ref_video_1..3；参考音频最多 3 个 → param_ref_audio_1..3\n- 首帧/尾帧模式下，首帧作为图1、尾帧作为图2 传给工作流\n\n**说明**\n- 参考素材先上传到面板 input 目录再提交任务；上传文件名用素材在 Toonflow 里的原始文件名，拿不到原始文件名时才按内容哈希和大小生成，不同内容绝不撞名（旧版文件名截断写错，同一台机器上所有素材会同名互相覆盖，已修复）\n- 每次提交会自动清空 gh_state_json（节点会用工作流里存的旧提示词/旧参考图覆盖传入值，不清空会导致提示词和参考图不生效）\n- 生成为异步轮询（每 3 秒一次，最长约 60 分钟）；prompt_id 只存在于面板内存中，面板重启后无法再查询，插件会在完成时立即取走结果\n- 在 Toonflow 里取消生成只停止本地等待，面板端任务会继续跑完（面板没有单机中断接口）",
   rules: [
     {
       type: "input",
@@ -263,14 +330,10 @@ export default {
       ],
     },
     {
-      type: "select",
-      field: "uploadReuse",
-      title: "参考素材上传（同内容默认同名复用面板上已存的文件）",
-      value: "auto",
-      options: [
-        { label: "自动复用", value: "auto" },
-        { label: "每次重新上传（不复用旧文件）", value: "always" },
-      ],
+      type: "input",
+      field: "uploadExpireHours",
+      title: "参考素材过期时长（小时）：面板上同名文件的上传时间距现在超过这个时长就重新上传，没超过直接复用、不再上传；填 0 表示每次都重新上传",
+      value: "10",
     },
     {
       type: "input",
@@ -357,18 +420,25 @@ export default {
     const timeoutSignal = AbortSignal.timeout(60 * 60 * 1000);
     const signal = this.signal ? AbortSignal.any([timeoutSignal, this.signal]) : timeoutSignal;
 
+    // 上传前先拉一次面板 input 目录清单：同名同大小且未过期的文件直接复用、跳过上传
+    const uploadState: ZmUploadState = {
+      assets: await zmListInputAssets(this, baseUrl, signal),
+      expireMs: zmExpireMs(this),
+      done: new Map<string, string>(),
+    };
+
     // 先上传全部参考素材，拿到 name（顺序与 param_ref_image_1.. / param_ref_video_1.. / param_ref_audio_1.. 对应）
     const imageFiles: string[] = [];
     const videoFiles: string[] = [];
     const audioFiles: string[] = [];
     for (let i = 0; i < images.length; i++) {
-      imageFiles.push(await zmUploadMedia(this, baseUrl, images[i], "第 " + (i + 1) + " 张参考图", "image/", signal));
+      imageFiles.push(await zmUploadMedia(this, baseUrl, images[i], "第 " + (i + 1) + " 张参考图", "image/", signal, uploadState));
     }
     for (let i = 0; i < videos.length; i++) {
-      videoFiles.push(await zmUploadMedia(this, baseUrl, videos[i], "第 " + (i + 1) + " 个参考视频", "video/", signal));
+      videoFiles.push(await zmUploadMedia(this, baseUrl, videos[i], "第 " + (i + 1) + " 个参考视频", "video/", signal, uploadState));
     }
     for (let i = 0; i < audios.length; i++) {
-      audioFiles.push(await zmUploadMedia(this, baseUrl, audios[i], "第 " + (i + 1) + " 个参考音频", "audio/", signal));
+      audioFiles.push(await zmUploadMedia(this, baseUrl, audios[i], "第 " + (i + 1) + " 个参考音频", "audio/", signal, uploadState));
     }
 
     // 生成前清显存（尽力而为，失败不拦截生成）：与面板 U 系列快捷生成的默认行为一致。
