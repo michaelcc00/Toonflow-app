@@ -67,27 +67,22 @@
         </div>
         <div class="promptInputHeader">
           <el-segmented
-            v-model="showOptimized"
+            v-model="promptTab"
             :options="promptVersionOptions"
             size="small"
-            aria-label="切换原始或优化后提示词" />
-          <el-button
-            size="small"
-            :loading="translating"
-            :disabled="generating || deleting || optimizing || !displayPrompt.trim()"
-            aria-label="把当前显示的提示词翻译成中文"
-            @click="runTranslate().catch((error) => showNodeError(error, '翻译失败'))">
-            翻译成中文
-          </el-button>
+            aria-label="切换原始、优化后或中文翻译提示词" />
         </div>
-        <promptInput v-model="displayPromptModel" v-model:text="displayPrompt" :references="referenceMentions" expandable libraryType="video" />
-        <div v-if="data.translatedPrompt" class="translateResult">
-          <div class="translateResultHeader">
-            <span>中文翻译（仅供阅读，不参与生成）</span>
-            <el-button size="small" text aria-label="关闭翻译显示" @click="data.translatedPrompt = ''">关闭</el-button>
-          </div>
-          <div class="translateResultText">{{ data.translatedPrompt }}</div>
-        </div>
+        <promptInput
+          v-if="promptTab !== 'translated'"
+          v-model="displayPromptModel"
+          v-model:text="displayPrompt"
+          :references="referenceMentions"
+          expandable
+          libraryType="video"
+          translatable
+          :translateLoading="translating"
+          @translate="runTranslate().catch((error) => showNodeError(error, '翻译失败'))" />
+        <div v-else class="translatedView">{{ data.translatedPrompt }}</div>
         <div class="promptFooter">
           <el-select
             v-model="data.model"
@@ -253,12 +248,25 @@ const optimizeError = ref("");
 const generateDone = ref(false);
 const showOptimized = ref(!!data.value.optimizedPrompt.trim());
 const hasOptimized = computed(() => !!data.value.optimizedPrompt.trim());
+const showTranslated = ref(false);
+const hasTranslated = computed(() => !!data.value.translatedPrompt?.trim());
 // ACT: 不能整组禁用：停在优化后并清空内容时 hasOptimized 变 false，整组禁用会把用户锁死在空的优化后视图、切不回原始。
-// 原始恒可点；优化后仅在“没有优化内容且当前不在优化后视图”时禁用。
+// 原始恒可点；优化后仅在“没有优化内容且当前不在优化后视图”时禁用；中文同理（无译文且不在中文视图时禁用）。
+// 中文是只读视图：showTranslated 只是显示开关，生成取词仍按 showOptimized 在原始/优化后里选，译文永不参与生成。
 const promptVersionOptions = computed(() => [
-  { label: "原始", value: false },
-  { label: "优化后", value: true, disabled: !hasOptimized.value && !showOptimized.value },
+  { label: "原始", value: "raw" },
+  { label: "优化后", value: "optimized", disabled: !hasOptimized.value && !showOptimized.value },
+  { label: "中文", value: "translated", disabled: !hasTranslated.value && !showTranslated.value },
 ]);
+type PromptTab = "raw" | "optimized" | "translated";
+const promptTab = computed<PromptTab>({
+  get: () => showTranslated.value ? "translated" : showOptimized.value ? "optimized" : "raw",
+  set: (value) => {
+    if (value === "translated") { showTranslated.value = true; return; }
+    showTranslated.value = false;
+    showOptimized.value = value === "optimized";
+  },
+});
 // 输入框显示原始或优化后：切到哪边，生成就用哪边
 const displayPrompt = computed({
   get: () => showOptimized.value ? data.value.optimizedPrompt : data.value.prompt,
@@ -467,6 +475,7 @@ async function runOptimize() {
     data.value.optimizedPrompt = optimized;
     data.value.optimizedPromptModel = optimized.split("\n").map((text) => [{ type: "Write", text }]);
     showOptimized.value = true;
+    showTranslated.value = false;
     optimizeDone.value = true;
     optimizeStatus.value = "succeeded";
   } catch (error) {
@@ -487,8 +496,9 @@ async function runTranslate() {
   translating.value = true;
   try {
     const { translated } = await ai.translatePrompt({ providerId: config.providerId, modelId: config.modelId, text: sourceText });
-    // 只存到单独的展示字段：输入框里的原文（提交生成用的）一个字都不动
+    // 只存到单独的展示字段：输入框里的原文（提交生成用的）一个字都不动；译完自动切到中文 tab 展示
     data.value.translatedPrompt = translated;
+    showTranslated.value = true;
   } finally {
     translating.value = false;
   }
@@ -999,25 +1009,16 @@ nodeTools.register({
       margin-bottom: 6px;
     }
 
-    .translateResult {
-      margin-top: 8px;
+    .translatedView {
+      margin: 12px 0 16px;
+      min-height: 70px;
+      max-height: 180px;
+      overflow-y: auto;
       padding: 8px 10px;
       border: 1px solid var(--el-border-color-lighter);
       border-radius: 6px;
       background: var(--el-fill-color-light);
-    }
-
-    .translateResultHeader {
-      display: flex;
-      align-items: center;
-      justify-content: space-between;
-      margin-bottom: 4px;
-      font-size: 12px;
-      color: var(--el-text-color-secondary);
-    }
-
-    .translateResultText {
-      font-size: 13px;
+      font-size: 14px;
       line-height: 1.6;
       white-space: pre-wrap;
       word-break: break-word;
