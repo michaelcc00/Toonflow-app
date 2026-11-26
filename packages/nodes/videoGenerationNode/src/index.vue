@@ -279,13 +279,13 @@ const displayPromptModel = computed({
   set: (value: PromptModel) => { if (showTranslated.value) data.value.translatedPromptModel = value; else if (showOptimized.value) data.value.optimizedPromptModel = value; else data.value.promptModel = value; },
 });
 
-async function loadPromptOptimizeConfig(): Promise<{ enabled: boolean; providerId: string; modelId: string; language: "zh" | "en"; readMedia: boolean; prompts: { id: string; content: string }[]; defaultPromptId: string }> {
+async function loadPromptOptimizeConfig(): Promise<{ enabled: boolean; providerId: string; modelId: string; language: "zh" | "en"; readMedia: boolean; prompts: { id: string; content: string; outputLang?: "zh" | "en" }[]; defaultPromptId: string }> {
   // 每次重新读取：用户可能在节点挂载后才去设置里改配置
   const response = await fetch("/api/settings/get", { headers: { "x-toonflow-workspace": "1" } });
-  const result = await response.json() as { code: number; data?: { promptOptimize?: { enabled?: boolean; providerId?: string; modelId?: string; language?: string; readMedia?: boolean; prompts?: { id?: string; content?: string }[]; defaultPromptId?: string } } };
+  const result = await response.json() as { code: number; data?: { promptOptimize?: { enabled?: boolean; providerId?: string; modelId?: string; language?: string; readMedia?: boolean; prompts?: { id?: string; content?: string; outputLang?: string }[]; defaultPromptId?: string } } };
   if (result.code !== 200) throw new Error("读取提示词优化设置失败");
   const raw = result.data?.promptOptimize ?? {};
-  const prompts = Array.isArray(raw.prompts) ? raw.prompts.filter(p => p && typeof p.id === "string" && typeof p.content === "string") as { id: string; content: string }[] : [];
+  const prompts = Array.isArray(raw.prompts) ? raw.prompts.filter(p => p && typeof p.id === "string" && typeof p.content === "string").map(p => ({ id: p.id as string, content: p.content as string, outputLang: p.outputLang === "zh" ? "zh" as const : "en" as const })) : [];
   return {
     enabled: raw.enabled !== false,
     providerId: raw.providerId ?? "",
@@ -470,6 +470,7 @@ async function runOptimize() {
       readMedia: config.readMedia,
       systemTemplate: template.content?.trim() ? template.content : undefined,
       templateId: template.id,
+      outputLang: template.outputLang,
       task: "REF2VA",
       duration: data.value.duration ?? 5,
       directory,
