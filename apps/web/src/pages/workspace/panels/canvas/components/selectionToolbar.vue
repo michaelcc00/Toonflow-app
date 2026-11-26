@@ -43,7 +43,7 @@ import {
 import { useNodeEvent } from "@toonflow/nodes-scaffold/nodeEvent";
 import { isTypeCompatible, type NodeHandle } from "@toonflow/nodes-scaffold/runtime";
 import { getSelectionConnections } from "../selectionConnections";
-import { useBatchGenerationStore, useBatchOptimizeStore, type BatchItem } from "@/stores/batchExecution";
+import { useBatchGenerationStore, useBatchOptimizeStore, type BatchItemInput } from "@/stores/batchExecution";
 import { buildXlsxBlob, type XlsxCell } from "@/lib/buildXlsx";
 import { saveBinaryFile } from "@/lib/saveBinaryFile";
 import { finishGroupDrag, getSelectionRoots, getSelectionTree } from "../selectionNodes";
@@ -161,7 +161,7 @@ async function createVideoMerge() {
 }
 
 function openBatchExecute() {
-  const items: BatchItem[] = generatableNodes.value.map(node => ({
+  const items: BatchItemInput[] = generatableNodes.value.map(node => ({
     nodeId: node.id,
     label: String(node.data?.label ?? node.label ?? node.id),
     nodeType: node.type === "remote-imageGenerationNode" ? "image" : "video",
@@ -186,7 +186,7 @@ const optimizableNodes = computed(() => {
 const hasOptimizableNodes = computed(() => optimizableNodes.value.length > 0);
 
 function openBatchOptimize() {
-  const items: BatchItem[] = optimizableNodes.value.map(node => ({
+  const items: BatchItemInput[] = optimizableNodes.value.map(node => ({
     nodeId: node.id,
     label: String(node.data?.label ?? node.label ?? node.id),
     nodeType: "video",
