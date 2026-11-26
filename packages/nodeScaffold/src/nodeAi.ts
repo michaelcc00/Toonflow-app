@@ -189,6 +189,8 @@ export function useNodeAi() {
     readMedia?: boolean;
     systemTemplate?: string;
     templateId?: string;
+    /** 自定义模板的输出语言：zh 时服务端在优化结果返回后翻译成中文 */
+    outputLang?: "zh" | "en";
     task?: "T2VA" | "I2VA" | "L2VA" | "FL2VA" | "REF2VA" | "HYBRID";
     duration?: number;
     directory?: string;
