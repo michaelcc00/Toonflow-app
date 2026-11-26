@@ -73,16 +73,14 @@
             aria-label="切换原始、优化后或中文翻译提示词" />
         </div>
         <promptInput
-          v-if="promptTab !== 'translated'"
           v-model="displayPromptModel"
           v-model:text="displayPrompt"
           :references="referenceMentions"
           expandable
-          libraryType="video"
-          translatable
+          :libraryType="promptTab === 'translated' ? undefined : 'video'"
+          :translatable="promptTab !== 'translated'"
           :translateLoading="translating"
           @translate="runTranslate().catch((error) => showNodeError(error, '翻译失败'))" />
-        <div v-else class="translatedView">{{ data.translatedPrompt }}</div>
         <div class="promptFooter">
           <el-select
             v-model="data.model"
@@ -214,12 +212,13 @@ type PassRecord = {
   /** 二采记录专用：本次使用的放大倍数（放大在工作流内部完成，megapixels 与一采一致）。 */
   multiplier?: number;
 };
-const data = computed(() => node.data as { prompt: string; promptModel: PromptModel; optimizedPrompt: string; optimizedPromptModel: PromptModel; translatedPrompt?: string; model: string; duration?: number; resolution: string; ratio: string; mode: string; generateAudio: boolean; batchCount?: number; passRecords?: Record<string, PassRecord> });
+const data = computed(() => node.data as { prompt: string; promptModel: PromptModel; optimizedPrompt: string; optimizedPromptModel: PromptModel; translatedPrompt?: string; translatedPromptModel?: PromptModel; model: string; duration?: number; resolution: string; ratio: string; mode: string; generateAudio: boolean; batchCount?: number; passRecords?: Record<string, PassRecord> });
 data.value.prompt ??= "";
 data.value.promptModel ??= [];
 data.value.optimizedPrompt ??= "";
 data.value.optimizedPromptModel ??= [];
 data.value.translatedPrompt ??= "";
+data.value.translatedPromptModel ??= [];
 data.value.model ??= "";
 data.value.resolution ??= "";
 data.value.mode ??= "";
@@ -252,7 +251,7 @@ const showTranslated = ref(false);
 const hasTranslated = computed(() => !!data.value.translatedPrompt?.trim());
 // ACT: 不能整组禁用：停在优化后并清空内容时 hasOptimized 变 false，整组禁用会把用户锁死在空的优化后视图、切不回原始。
 // 原始恒可点；优化后仅在“没有优化内容且当前不在优化后视图”时禁用；中文同理（无译文且不在中文视图时禁用）。
-// 中文是只读视图：showTranslated 只是显示开关，生成取词仍按 showOptimized 在原始/优化后里选，译文永不参与生成。
+// 中文 tab 与原始/优化后共用同一个输入框（各自存各自的文本与结构化模型）；生成取词只按 showOptimized 在原始/优化后里选，译文永不参与生成。
 const promptVersionOptions = computed(() => [
   { label: "原始", value: "raw" },
   { label: "优化后", value: "optimized", disabled: !hasOptimized.value && !showOptimized.value },
@@ -267,14 +266,17 @@ const promptTab = computed<PromptTab>({
     showOptimized.value = value === "optimized";
   },
 });
-// 输入框显示原始或优化后：切到哪边，生成就用哪边
+// 输入框按当前 tab 显示原始 / 优化后 / 中文译文；生成取词不走这里（见 startGeneration），译文不会被提交
 const displayPrompt = computed({
-  get: () => showOptimized.value ? data.value.optimizedPrompt : data.value.prompt,
-  set: (value: string) => { if (showOptimized.value) data.value.optimizedPrompt = value; else data.value.prompt = value; },
+  get: () => showTranslated.value ? data.value.translatedPrompt ?? "" : showOptimized.value ? data.value.optimizedPrompt : data.value.prompt,
+  set: (value: string) => { if (showTranslated.value) data.value.translatedPrompt = value; else if (showOptimized.value) data.value.optimizedPrompt = value; else data.value.prompt = value; },
 });
 const displayPromptModel = computed({
-  get: () => showOptimized.value ? data.value.optimizedPromptModel : data.value.promptModel,
-  set: (value: PromptModel) => { if (showOptimized.value) data.value.optimizedPromptModel = value; else data.value.promptModel = value; },
+  // 旧数据只有译文文本、没有结构化模型时，按行现拆一份（与优化写回同构）
+  get: () => showTranslated.value
+    ? (data.value.translatedPromptModel?.length ? data.value.translatedPromptModel : (data.value.translatedPrompt ?? "").split("\n").map((text) => [{ type: "Write", text }] as PromptModel[number]))
+    : showOptimized.value ? data.value.optimizedPromptModel : data.value.promptModel,
+  set: (value: PromptModel) => { if (showTranslated.value) data.value.translatedPromptModel = value; else if (showOptimized.value) data.value.optimizedPromptModel = value; else data.value.promptModel = value; },
 });
 
 async function loadPromptOptimizeConfig(): Promise<{ enabled: boolean; providerId: string; modelId: string; language: "zh" | "en"; readMedia: boolean; prompts: { id: string; content: string }[]; defaultPromptId: string }> {
@@ -496,8 +498,9 @@ async function runTranslate() {
   translating.value = true;
   try {
     const { translated } = await ai.translatePrompt({ providerId: config.providerId, modelId: config.modelId, text: sourceText });
-    // 只存到单独的展示字段：输入框里的原文（提交生成用的）一个字都不动；译完自动切到中文 tab 展示
+    // 只存到译文自己的字段（文本 + 结构化模型，与优化写回同构）：原文（提交生成用的）一个字都不动；译完自动切到中文 tab 展示
     data.value.translatedPrompt = translated;
+    data.value.translatedPromptModel = translated.split("\n").map((text) => [{ type: "Write", text }]);
     showTranslated.value = true;
   } finally {
     translating.value = false;
@@ -513,8 +516,8 @@ async function startGeneration(batchCountOverride?: number) {
   if (refList.value.some(item => item.value === undefined)) throw new Error("引用节点暂无内容，请先补充引用内容");
   const images = refList.value.flatMap((item) => item.dataType === "IMAGE" && item.value ? [{ path: item.value.url, mimeType: item.value.mimeType }] : []);
   if (choice.mode?.length && !matchingModes.value.length) throw new Error("当前模型没有适合这些参考素材的生成模式，请更换模型或调整引用");
-  // 用当前显示的版本（原始 / 优化后）生成
-  const prompt = displayPrompt.value.trim();
+  // 用原始 / 优化后生成（按 showOptimized 选）：停在中文 tab 时也一样，译文不参与生成
+  const prompt = (showOptimized.value ? data.value.optimizedPrompt : data.value.prompt).trim();
   if (!prompt) throw new Error("请输入生成提示词");
   const workspace = files.getWorkspaceFiles();
   const controller = new AbortController();
@@ -1009,22 +1012,7 @@ nodeTools.register({
       margin-bottom: 6px;
     }
 
-    .translatedView {
-      margin: 12px 0 16px;
-      min-height: 70px;
-      max-height: 180px;
-      overflow-y: auto;
-      padding: 8px 10px;
-      border: 1px solid var(--el-border-color-lighter);
-      border-radius: 6px;
-      background: var(--el-fill-color-light);
-      font-size: 14px;
-      line-height: 1.6;
-      white-space: pre-wrap;
-      word-break: break-word;
-      color: var(--el-text-color-regular);
-      user-select: text;
-    }
+
 
     .sendButton {
       width: 32px;
