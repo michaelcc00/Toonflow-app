@@ -121,3 +121,39 @@ export async function optimizePrompt(args: PromptOptimizeArgs): Promise<string> 
     signal?.removeEventListener("abort", onAbort);
   }
 }
+
+const translateSystemPrompt = "你是翻译助手。把用户给出的文本翻译成简体中文，只返回译文本身，不要解释、不要加引号或代码围栏。原文中的标签与固定标记保持原样不翻译，包括 <Picture N>、<Video N>、<Audio N>、<d>...</d>、[Shot N]、(S1) 这类主体简写，以及 subject_definitions、summary 等固定字段名；保留原文的换行与段落结构；已经是中文的部分原样保留。";
+
+/** 用用户自配的文本模型把文本翻译成简体中文，返回译文。 */
+export async function translatePromptText(args: { providerId: string; modelId: string; text: string; signal?: AbortSignal }): Promise<string> {
+  const { providerId, modelId, text, signal } = args;
+  if (!text.trim()) throw Object.assign(new Error("要翻译的文本不能为空"), { status: 400 });
+  const configured = getConfiguredModel(providerId, modelId);
+  const controller = new AbortController();
+  const onAbort = () => controller.abort();
+  signal?.addEventListener("abort", onAbort, { once: true });
+  try {
+    const stream = streamAi(configured, {
+      systemPrompt: translateSystemPrompt,
+      messages: [{ role: "user", content: text, timestamp: Date.now() }],
+    }, controller.signal);
+    let result = "";
+    for await (const event of stream) {
+      if (event.type === "text_delta") result += event.delta;
+    }
+    const message = await stream.result();
+    if (message.stopReason === "error" || message.stopReason === "aborted") {
+      throw new Error((message as { errorMessage?: string }).errorMessage || "模型请求失败");
+    }
+    if (!result.trim() && Array.isArray((message as { content?: unknown }).content)) {
+      for (const part of (message as { content: { type: string; text?: string }[] }).content) {
+        if (part.type === "text" && part.text) result += part.text;
+      }
+    }
+    const translated = result.trim();
+    if (!translated) throw new Error("翻译模型未返回文本，请更换模型或重试");
+    return translated;
+  } finally {
+    signal?.removeEventListener("abort", onAbort);
+  }
+}
