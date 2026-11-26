@@ -81,6 +81,13 @@
           </el-button>
         </div>
         <promptInput v-model="displayPromptModel" v-model:text="displayPrompt" :references="referenceMentions" expandable libraryType="video" />
+        <div v-if="data.translatedPrompt" class="translateResult">
+          <div class="translateResultHeader">
+            <span>中文翻译（仅供阅读，不参与生成）</span>
+            <el-button size="small" text aria-label="关闭翻译显示" @click="data.translatedPrompt = ''">关闭</el-button>
+          </div>
+          <div class="translateResultText">{{ data.translatedPrompt }}</div>
+        </div>
         <div class="promptFooter">
           <el-select
             v-model="data.model"
@@ -212,11 +219,12 @@ type PassRecord = {
   /** 二采记录专用：本次使用的放大倍数（放大在工作流内部完成，megapixels 与一采一致）。 */
   multiplier?: number;
 };
-const data = computed(() => node.data as { prompt: string; promptModel: PromptModel; optimizedPrompt: string; optimizedPromptModel: PromptModel; model: string; duration?: number; resolution: string; ratio: string; mode: string; generateAudio: boolean; batchCount?: number; passRecords?: Record<string, PassRecord> });
+const data = computed(() => node.data as { prompt: string; promptModel: PromptModel; optimizedPrompt: string; optimizedPromptModel: PromptModel; translatedPrompt?: string; model: string; duration?: number; resolution: string; ratio: string; mode: string; generateAudio: boolean; batchCount?: number; passRecords?: Record<string, PassRecord> });
 data.value.prompt ??= "";
 data.value.promptModel ??= [];
 data.value.optimizedPrompt ??= "";
 data.value.optimizedPromptModel ??= [];
+data.value.translatedPrompt ??= "";
 data.value.model ??= "";
 data.value.resolution ??= "";
 data.value.mode ??= "";
@@ -479,9 +487,8 @@ async function runTranslate() {
   translating.value = true;
   try {
     const { translated } = await ai.translatePrompt({ providerId: config.providerId, modelId: config.modelId, text: sourceText });
-    // 写回当前显示的版本（原始 / 优化后），结构化模型同步重建，与优化写回一致
-    displayPrompt.value = translated;
-    displayPromptModel.value = translated.split("\n").map((text) => [{ type: "Write", text }]);
+    // 只存到单独的展示字段：输入框里的原文（提交生成用的）一个字都不动
+    data.value.translatedPrompt = translated;
   } finally {
     translating.value = false;
   }
@@ -990,6 +997,32 @@ nodeTools.register({
       justify-content: flex-end;
       gap: 8px;
       margin-bottom: 6px;
+    }
+
+    .translateResult {
+      margin-top: 8px;
+      padding: 8px 10px;
+      border: 1px solid var(--el-border-color-lighter);
+      border-radius: 6px;
+      background: var(--el-fill-color-light);
+    }
+
+    .translateResultHeader {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 4px;
+      font-size: 12px;
+      color: var(--el-text-color-secondary);
+    }
+
+    .translateResultText {
+      font-size: 13px;
+      line-height: 1.6;
+      white-space: pre-wrap;
+      word-break: break-word;
+      color: var(--el-text-color-regular);
+      user-select: text;
     }
 
     .sendButton {
