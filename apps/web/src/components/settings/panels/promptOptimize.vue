@@ -40,6 +40,7 @@
           <span class="promptName">{{ item.name || "未命名" }}</span>
           <el-tag v-if="item.id === config.defaultPromptId" type="success" size="small">默认</el-tag>
           <el-tag v-if="item.locked" type="info" size="small">内置</el-tag>
+          <el-tag v-if="!item.locked && item.outputLang === 'zh'" size="small">输出中文</el-tag>
           <span class="promptActions" @click.stop>
             <el-button v-if="item.id !== config.defaultPromptId" size="small" aria-label="设为默认" @click="save({ defaultPromptId: item.id })">设为默认</el-button>
             <el-button v-if="!item.locked" :icon="IconTrash" size="small" text type="danger" aria-label="删除提示词" @click="removePrompt(item.id)" />
@@ -63,6 +64,14 @@
           :autosize="{ minRows: 10, maxRows: 18 }"
           placeholder="提示词内容"
           aria-label="提示词内容" />
+        <div class="outputLangRow">
+          <span class="fieldLabel">输出语言</span>
+          <el-select v-model="editingOutputLang" aria-label="优化输出语言">
+            <el-option label="英文" value="en" />
+            <el-option label="中文" value="zh" />
+          </el-select>
+          <span class="outputLangHint">选中文时，优化结果返回后自动翻译成中文再显示</span>
+        </div>
       </div>
       <template #footer>
         <el-button @click="dialogVisible = false">取消</el-button>
@@ -94,6 +103,8 @@ interface PromptTemplate {
   content: string;
   /** 锁定后不可编辑/删除，只能设为默认 */
   locked?: boolean;
+  /** 输出语言：zh 时优化结果返回后自动翻译成中文再显示；缺省 en（原样返回） */
+  outputLang?: "zh" | "en";
 }
 
 interface OptimizeConfig {
@@ -114,6 +125,7 @@ const dialogVisible = ref(false);
 const editingId = ref("");
 const editingName = ref("");
 const editingContent = ref("");
+const editingOutputLang = ref<"zh" | "en">("en");
 
 function defaultConfig(): OptimizeConfig {
   return {
@@ -137,6 +149,7 @@ const config = computed<OptimizeConfig>(() => {
           name: typeof p.name === "string" ? p.name : "未命名",
           content: typeof p.content === "string" ? p.content : "",
           locked: p.id === "goohai-builtin" || p.locked === true,
+          outputLang: (p as PromptTemplate).outputLang === "zh" ? "zh" as const : "en" as const,
         }))
     : defaultConfig().prompts;
   // 迁移：旧版内置模板（id 为 builtin-时间戳）转为锁定版
@@ -184,7 +197,7 @@ async function exportPrompts() {
   const payload = {
     kind: "toonflow-prompt-optimize",
     version: 1,
-    prompts: config.value.prompts.map(p => ({ name: p.name, content: p.content })),
+    prompts: config.value.prompts.map(p => ({ name: p.name, content: p.content, outputLang: p.outputLang === "zh" ? "zh" : "en" })),
   };
   const result = await saveTextFile("prompt-optimize-prompts.json", JSON.stringify(payload, null, 2), "提示词优化");
   if (result === "saved") ElMessage.success("已导出全部提示词");
@@ -210,12 +223,13 @@ async function importPrompts() {
   const imported: PromptTemplate[] = [];
   rawItems.forEach((entry, index) => {
     if (!entry || typeof entry !== "object") { skipped++; return; }
-    const raw = entry as { name?: unknown; content?: unknown };
+    const raw = entry as { name?: unknown; content?: unknown; outputLang?: unknown };
     if (typeof raw.content !== "string" || !raw.content.trim()) { skipped++; return; }
     imported.push({
       id: `custom-${Date.now()}-${index}`,
       name: typeof raw.name === "string" && raw.name.trim() ? raw.name : "未命名",
       content: raw.content,
+      outputLang: raw.outputLang === "zh" ? "zh" : "en",
     });
   });
   if (!imported.length) {
@@ -247,6 +261,7 @@ function openDialog(item?: PromptTemplate) {
   editingId.value = item?.id ?? "";
   editingName.value = item?.name ?? "";
   editingContent.value = item?.content ?? "";
+  editingOutputLang.value = item?.outputLang === "zh" ? "zh" : "en";
   dialogVisible.value = true;
 }
 
@@ -254,13 +269,14 @@ function confirmDialog() {
   const name = editingName.value.trim();
   const content = editingContent.value.trim();
   if (!name || !content) return;
+  const outputLang = editingOutputLang.value;
   let prompts: PromptTemplate[];
   let defaultPromptId = config.value.defaultPromptId;
   if (editingId.value) {
-    prompts = config.value.prompts.map(p => p.id === editingId.value ? { ...p, name, content } : p);
+    prompts = config.value.prompts.map(p => p.id === editingId.value ? { ...p, name, content, outputLang } : p);
   } else {
     const id = `custom-${Date.now()}`;
-    prompts = [...config.value.prompts, { id, name, content }];
+    prompts = [...config.value.prompts, { id, name, content, outputLang }];
     if (!prompts.some(p => p.id === defaultPromptId)) defaultPromptId = id;
   }
   dialogVisible.value = false;
@@ -359,6 +375,24 @@ onMounted(loadModels);
     display: flex;
     flex-direction: column;
     gap: 8px;
+    .outputLangRow {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      .fieldLabel {
+        font-size: 13px;
+        color: var(--el-text-color-secondary);
+        white-space: nowrap;
+      }
+      .el-select {
+        width: 120px;
+        flex: none;
+      }
+      .outputLangHint {
+        font-size: 12px;
+        color: var(--el-text-color-secondary);
+      }
+    }
   }
 }
 </style>
