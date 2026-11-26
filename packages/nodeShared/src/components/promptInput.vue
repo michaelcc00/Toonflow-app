@@ -2,6 +2,7 @@
   <div class="promptInputWrap nodrag nopan nowheel">
     <el-button v-if="expandable" class="expandButton" :icon="IconMaximize" text circle title="展开编辑提示词" aria-label="展开编辑提示词" @mousedown.prevent @click.stop="expanded = true" />
     <el-button v-if="expandable && libraryType" class="libraryButton" :icon="IconBookmarks" text circle title="插入常用提示词" aria-label="插入常用提示词" @mousedown.prevent @click.stop="openLibrary" />
+    <el-button v-if="expandable && translatable" class="translateButton" :icon="IconLanguage" :loading="translateLoading" text circle title="翻译成中文" aria-label="翻译成中文" @mousedown.prevent @click.stop="emit('translate')" />
     <teleport :to="expandedTarget || 'body'" :disabled="!expanded || !expandedTarget">
       <div ref="senderElement" class="promptInput nodrag nopan nowheel" :class="{ expandedInput: expanded }" @keydown.capture="handleMentionKey" @click.capture="previewReference" />
     </teleport>
@@ -31,11 +32,12 @@
 <script setup lang="ts">
 import { computed, nextTick, ref, watch } from "vue";
 import { ElButton, ElCheckbox, ElDialog, ElEmpty, ElImageViewer, useZIndex } from "element-plus";
-import { IconBookmarks, IconMaximize } from "@tabler/icons-vue";
+import { IconBookmarks, IconLanguage, IconMaximize } from "@tabler/icons-vue";
 import xSender, { type AnyTagProps, type MentionItem } from "x-sender";
 import "x-sender/lib/XSender.css";
 
-const props = defineProps<{ references: (MentionItem & { value: string; mediaType?: string })[]; expandable?: boolean; placeholder?: string; libraryType?: "image" | "video" | "audio" }>();
+const props = defineProps<{ references: (MentionItem & { value: string; mediaType?: string })[]; expandable?: boolean; placeholder?: string; libraryType?: "image" | "video" | "audio"; translatable?: boolean; translateLoading?: boolean }>();
+const emit = defineEmits<{ translate: [] }>();
 const model = defineModel<AnyTagProps[][]>({ required: true });
 const text = defineModel<string>("text", { default: "" });
 const senderElement = ref<HTMLElement>();
@@ -502,6 +504,17 @@ function handleMentionKey(event: KeyboardEvent) {
   .libraryButton {
     position: absolute;
     top: 30px;
+    right: 10px;
+    z-index: 11;
+    width: 24px;
+    height: 24px;
+    padding: 4px;
+    color: var(--el-text-color-secondary);
+  }
+
+  .translateButton {
+    position: absolute;
+    top: 58px;
     right: 10px;
     z-index: 11;
     width: 24px;
