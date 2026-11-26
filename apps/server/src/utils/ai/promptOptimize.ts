@@ -65,9 +65,6 @@ export async function optimizePrompt(args: PromptOptimizeArgs): Promise<string> 
       })), controller.signal)
       : [];
 
-    // 日志：打印用户提示词和系统提示词（需求3）
-    console.log("[提示词优化] 用户提示词:\n" + prompt);
-
     let system: string;
     let userText: string;
     const outputLanguage = language === "en" ? "English" : "中文";
@@ -84,8 +81,6 @@ export async function optimizePrompt(args: PromptOptimizeArgs): Promise<string> 
       const refs = count ? `\n\nReference images: ${Array.from({ length: count }, (_, i) => `<Picture ${i + 1}>`).join(", ")} (attached below in order).` : "";
       userText = `Raw user prompt:\n${prompt}${refs}`;
     }
-    console.log("[提示词优化] 系统提示词:\n" + system);
-
     // ACT: 终端回滚会冲掉长日志、重定向又有代码页乱码问题，另存一份完整文本到数据目录
     // （每次覆盖，UTF-8 由程序写出），随时打开核对；落盘失败不影响优化本身。
     try {
