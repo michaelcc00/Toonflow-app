@@ -10,7 +10,7 @@ import modelContextLimits from "@/utils/ai/modelContextLimits";
 
 export { fetchProviderModels } from "@/utils/ai/models";
 export { refreshProviderModels } from "@/utils/ai/initialize";
-export { optimizePrompt } from "@/utils/ai/promptOptimize";
+export { optimizePrompt, translatePromptText } from "@/utils/ai/promptOptimize";
 export type { PromptOptimizeArgs } from "@/utils/ai/promptOptimize";
 
 export const providerSchema = z.object({
