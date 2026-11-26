@@ -71,6 +71,14 @@
             :options="promptVersionOptions"
             size="small"
             aria-label="切换原始或优化后提示词" />
+          <el-button
+            size="small"
+            :loading="translating"
+            :disabled="generating || deleting || optimizing || !displayPrompt.trim()"
+            aria-label="把当前显示的提示词翻译成中文"
+            @click="runTranslate().catch((error) => showNodeError(error, '翻译失败'))">
+            翻译成中文
+          </el-button>
         </div>
         <promptInput v-model="displayPromptModel" v-model:text="displayPrompt" :references="referenceMentions" expandable libraryType="video" />
         <div class="promptFooter">
@@ -230,6 +238,7 @@ const actualVideoWidth = ref(0);
 const actualVideoHeight = ref(0);
 let generationController: AbortController | undefined;
 const optimizing = ref(false);
+const translating = ref(false);
 const optimizeDone = ref(false);
 const optimizeStatus = ref<"idle" | "running" | "succeeded" | "failed">("idle");
 const optimizeError = ref("");
@@ -458,6 +467,23 @@ async function runOptimize() {
     throw error;
   } finally {
     optimizing.value = false;
+  }
+}
+
+async function runTranslate() {
+  if (translating.value) return;
+  const sourceText = displayPrompt.value.trim();
+  if (!sourceText) throw new Error("请先输入提示词");
+  const config = await loadPromptOptimizeConfig();
+  if (!config.providerId || !config.modelId) throw new Error("请先在设置 → 提示词优化中选择优化模型");
+  translating.value = true;
+  try {
+    const { translated } = await ai.translatePrompt({ providerId: config.providerId, modelId: config.modelId, text: sourceText });
+    // 写回当前显示的版本（原始 / 优化后），结构化模型同步重建，与优化写回一致
+    displayPrompt.value = translated;
+    displayPromptModel.value = translated.split("\n").map((text) => [{ type: "Write", text }]);
+  } finally {
+    translating.value = false;
   }
 }
 
@@ -962,6 +988,7 @@ nodeTools.register({
     .promptInputHeader {
       display: flex;
       justify-content: flex-end;
+      gap: 8px;
       margin-bottom: 6px;
     }
 
