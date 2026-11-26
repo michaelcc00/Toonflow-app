@@ -6,7 +6,6 @@ import { resolveWorkspace } from "@/utils/workspace";
 import {
   buildSystemPrompt,
   buildUserText,
-  postProcessPrompt,
   type H3MediaItem,
   type H3Task,
 } from "@/utils/ai/goohaiPrompt";
@@ -116,10 +115,7 @@ export async function optimizePrompt(args: PromptOptimizeArgs): Promise<string> 
     const raw = text.trim();
     if (!raw) throw new Error("优化模型未返回文本，请更换模型或重试");
 
-    // Goohai 内置：走 Python 版后处理链（去文件名→章节格式化→补对白→缩写规范化）
-    if (templateId === GOOHAY_BUILTIN_TEMPLATE_ID) {
-      return postProcessPrompt(raw, task, duration, prompt, outputLanguage);
-    }
+    // 内置与自定义一致：模型输出原样返回，不做后处理
     return raw;
   } finally {
     signal?.removeEventListener("abort", onAbort);
