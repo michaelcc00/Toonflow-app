@@ -302,8 +302,8 @@ function zmResolveRefTags(prompt: string, imageCount: number, videoCount: number
 export default {
   id: "zealmanMinimaxH3",
   label: "zealman MiniMax H3 视频生成",
-  version: "1.6.0",
-  readme: "## zealman MiniMax H3 视频生成\n\n调用自托管 ComfyUI 面板（zealman 镜像 API）的视频生成适配器，与 RunningHub 供应商完全独立，不需要 API Key。\n\n**配置**\n- 服务地址：zealman 面板地址，如 https://xxxx.bjb1.seetacloud.com:8443\n- 工作流名称：面板「API 生成」页里已保存的工作流名称，如 MiniMaxH3_一二采\n- 生成前清显存：默认开启。连续跑 H3 这类重模型时，先调面板的清显存接口，避免第二次生成显存不足（OOM）；最多只等 5 秒，超时直接提交；不需要时可关闭\n- 随机种子字段：默认 noise_seed，一采每次提交自动生成随机种子，避免同参数批量生成出完全相同的视频；清空则不传种子（工作流使用保存的固定种子）；二采不传种子\n- 音频模式字段名：留空则不传递音频模式（按工作流默认值）；填了才传，字段名以面板工作流里 GH 节点的实际参数名为准，填错可能导致任务失败。音频模式默认 reference_only（参考音频仅作音色参考、生成新台词），另有 native（自动生成音频）、lock_source（原样保留源音频）、remix_source（部分混音/改编）可选\n- 参考素材过期时长（小时，默认 10）：上传文件名用素材在 Toonflow 里的原始文件名（即生成该素材的节点保存的文件名）。每次生成前先查面板 input 目录：已有同名同大小的文件、且它的时间（≈上传时间）距现在没超过这个时长，就直接复用、不再上传；超过了、或大小对不上，就重新上传覆盖。填 0 表示每次都重新上传。插件本身不保存任何上传记录，判断全靠面板上文件的时间；本机与面板机器时钟差太多会影响判断\n\n**一采 / 二采**\n- cache_id 是一采的标记：工作流里有 cache_id、cache_id_2、cache_id_3 三个字段，三个都传同一个值；每次一采自动生成唯一 cache_id，随结果回传给宿主，宿主把这次的参数和 cache_id 一起保存到视频节点\n- 视频节点上点「二采」时，只需填放大倍数：宿主用一采保存的参数重跑，插件复用同一 cache_id，并传 value_2=true（是否二采）和 value=放大倍数，放大由工作流内部完成，megapixels 与一采保持一致\n- 只有一采的视频能二采；二采结果会在历史记录里标明，并注明来自哪条一采\n\n**参数**\n- 时长：5–16 秒（逐秒可选），也可输入任意正数秒\n- 分辨率：像素档 0.2–1.0（每 0.1 一档，对应工作流的 megapixels），默认 0.4\n- 比例：节点上选的比例直接传给工作流的 aspect\n- 提示词：引用标签请直接写 <Picture N> / <Video N> / <Audio N>（N 为该类型下的序号）；{{ref N}} 仅在只传图片时自动转 <Picture N>\n- 参考图最多 9 张（含首/尾帧）→ param_ref_image_1..9；参考视频最多 3 个 → param_ref_video_1..3；参考音频最多 3 个 → param_ref_audio_1..3\n- 首帧/尾帧模式下，首帧作为图1、尾帧作为图2 传给工作流\n\n**说明**\n- 参考素材先上传到面板 input 目录再提交任务；上传文件名用素材在 Toonflow 里的原始文件名，拿不到原始文件名时才按内容哈希和大小生成，不同内容绝不撞名（旧版文件名截断写错，同一台机器上所有素材会同名互相覆盖，已修复）\n- 每次提交会自动清空 gh_state_json（节点会用工作流里存的旧提示词/旧参考图覆盖传入值，不清空会导致提示词和参考图不生效）\n- 生成为异步轮询（每 3 秒一次，最长约 60 分钟）；prompt_id 只存在于面板内存中，面板重启后无法再查询，插件会在完成时立即取走结果\n- 在 Toonflow 里取消生成只停止本地等待，面板端任务会继续跑完（面板没有单机中断接口）",
+  version: "1.6.1",
+  readme: "## zealman MiniMax H3 视频生成\n\n调用自托管 ComfyUI 面板（zealman 镜像 API）的视频生成适配器，与 RunningHub 供应商完全独立，不需要 API Key。\n\n**配置**\n- 服务地址：zealman 面板地址，如 https://xxxx.bjb1.seetacloud.com:8443\n- 工作流名称：面板「API 生成」页里已保存的工作流名称，如 MiniMaxH3_一二采\n- 生成前清显存：默认开启。连续跑 H3 这类重模型时，先调面板的清显存接口，避免第二次生成显存不足（OOM）；最多只等 5 秒，超时直接提交；不需要时可关闭\n- 随机种子字段：默认 noise_seed，一采每次提交自动生成随机种子，避免同参数批量生成出完全相同的视频；清空则不传种子（工作流使用保存的固定种子）；二采不传种子\n- 参考素材过期时长（小时，默认 10）：上传文件名用素材在 Toonflow 里的原始文件名（即生成该素材的节点保存的文件名）。每次生成前先查面板 input 目录：已有同名同大小的文件、且它的时间（≈上传时间）距现在没超过这个时长，就直接复用、不再上传；超过了、或大小对不上，就重新上传覆盖。填 0 表示每次都重新上传。插件本身不保存任何上传记录，判断全靠面板上文件的时间；本机与面板机器时钟差太多会影响判断\n\n**一采 / 二采**\n- cache_id 是一采的标记：工作流里有 cache_id、cache_id_2、cache_id_3 三个字段，三个都传同一个值；每次一采自动生成唯一 cache_id，随结果回传给宿主，宿主把这次的参数和 cache_id 一起保存到视频节点\n- 视频节点上点「二采」时，只需填放大倍数：宿主用一采保存的参数重跑，插件复用同一 cache_id，并传 value_2=true（是否二采）和 value=放大倍数，放大由工作流内部完成，megapixels 与一采保持一致\n- 只有一采的视频能二采；二采结果会在历史记录里标明，并注明来自哪条一采\n\n**参数**\n- 时长：5–16 秒（逐秒可选），也可输入任意正数秒\n- 分辨率：像素档 0.2–1.0（每 0.1 一档，对应工作流的 megapixels），默认 0.4\n- 比例：节点上选的比例直接传给工作流的 aspect\n- 提示词：引用标签请直接写 <Picture N> / <Video N> / <Audio N>（N 为该类型下的序号）；{{ref N}} 仅在只传图片时自动转 <Picture N>\n- 参考图最多 9 张（含首/尾帧）→ param_ref_image_1..9；参考视频最多 3 个 → param_ref_video_1..3；参考音频最多 3 个 → param_ref_audio_1..3\n- 首帧/尾帧模式下，首帧作为图1、尾帧作为图2 传给工作流\n\n**说明**\n- 参考素材先上传到面板 input 目录再提交任务；上传文件名用素材在 Toonflow 里的原始文件名，拿不到原始文件名时才按内容哈希和大小生成，不同内容绝不撞名（旧版文件名截断写错，同一台机器上所有素材会同名互相覆盖，已修复）\n- 每次提交会自动清空 gh_state_json（节点会用工作流里存的旧提示词/旧参考图覆盖传入值，不清空会导致提示词和参考图不生效）\n- 生成为异步轮询（每 3 秒一次，最长约 60 分钟）；prompt_id 只存在于面板内存中，面板重启后无法再查询，插件会在完成时立即取走结果\n- 在 Toonflow 里取消生成只停止本地等待，面板端任务会继续跑完（面板没有单机中断接口）",
   rules: [
     {
       type: "input",
@@ -340,24 +340,6 @@ export default {
       field: "seedField",
       title: "随机种子字段名（面板参数名，一采每次随机；清空则不传种子）",
       value: "noise_seed",
-    },
-    {
-      type: "input",
-      field: "audioModeField",
-      title: "音频模式字段名（面板参数名；留空则不传递，按工作流默认值）",
-      value: "",
-    },
-    {
-      type: "select",
-      field: "audioMode",
-      title: "音频模式（仅当上方字段名填写后生效；默认 reference_only 音频仅作音色参考）",
-      value: "reference_only",
-      options: [
-        { label: "native（自动生成音频）", value: "native" },
-        { label: "reference_only（音频仅作音色/风格参考，生成新台词）", value: "reference_only" },
-        { label: "lock_source（原样保留源音频，不生成新台词）", value: "lock_source" },
-        { label: "remix_source（部分混音/改编源音频）", value: "remix_source" },
-      ],
     },
   ],
   models: [
@@ -470,10 +452,6 @@ export default {
     const aspect = zmStr(request.ratio);
     if (aspect) inputValues.aspect = aspect;
     if (seed !== undefined) inputValues[seedField] = seed;
-    // 音频模式：字段名留空不传（不猜面板参数名，填错可能导致任务失败）
-    const audioModeField = zmStr(this.config.audioModeField, "");
-    const audioModeValue = zmStr(this.config.audioMode, "");
-    if (audioModeField && audioModeValue) inputValues[audioModeField] = audioModeValue;
     imageFiles.forEach((name, i) => { inputValues["param_ref_image_" + (i + 1)] = name; });
     videoFiles.forEach((name, i) => { inputValues["param_ref_video_" + (i + 1)] = name; });
     audioFiles.forEach((name, i) => { inputValues["param_ref_audio_" + (i + 1)] = name; });
